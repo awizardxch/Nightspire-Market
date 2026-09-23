@@ -1,0 +1,51 @@
+# Foundry artifacts
+out/
+cache/
+
+# Rust / Solana build outputs — but keep the two program binaries and the
+# hand-maintained IDL that the bankrun tests load directly as fixtures
+target/
+!target/deploy/
+target/deploy/*
+!target/deploy/xcm_htlc.so
+!target/deploy/spl_token.so
+!target/idl/
+target/idl/*
+!target/idl/xcm_htlc.json
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secrets / env — never commit keys
+.env
+.env.*
+!.env.example
+*-keypair.json
+*.pem
+*.key
+
+# Local validator / ledger state
+.sol-ledger-*/
+test-ledger/
+.ledger/
+
+# Relay runtime state (data dir holds the ed25519 identity key, event log,
+# snapshots — all regenerated locally, never committed)
+relay/data/
+
+# Worker runtime state (anvil keys, local deployments, demo recovery records)
+worker/.anvil-keys.json
+worker/deployments.json
+worker/data/
+worker/data-recovery/
+
+# Logs
+*.log
+
+# OS
+.DS_Store

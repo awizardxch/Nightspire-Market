@@ -1,0 +1,13 @@
+# Build outputs — but keep the two program binaries and the hand-maintained
+# IDL that the bankrun tests load directly as fixtures
+target/
+!target/deploy/
+target/deploy/*
+!target/deploy/xcm_htlc.so
+!target/deploy/spl_token.so
+!target/idl/
+target/idl/*
+!target/idl/xcm_htlc.json
+node_modules/
+.test-ledger/
+.DS_Store

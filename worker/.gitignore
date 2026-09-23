@@ -1,0 +1,4 @@
+node_modules/
+data/
+deployments.json
+.anvil-keys.json
