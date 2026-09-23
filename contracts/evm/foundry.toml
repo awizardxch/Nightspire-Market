@@ -1,0 +1,22 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+solc_version = "0.8.24"
+
+# SHA-256 via precompile 0x02 is used in withdraw(); enable the optimizer for
+# reasonable escrow bytecode. Immutables keep per-escrow storage reads cheap.
+optimizer = true
+optimizer_runs = 200
+
+# Vendored OpenZeppelin sources (minimal subset, fetched from the OZ repo):
+# ReentrancyGuard, ECDSA, SafeERC20 + transitive interfaces. Kept in-repo so the
+# Foundry project builds without a submodule checkout.
+remappings = [
+    "@openzeppelin/contracts/=lib/oz/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+[profile.default.fuzz]
+runs = 256
