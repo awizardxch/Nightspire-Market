@@ -51,7 +51,7 @@ consensus. See `contracts/chia/README.md`.
 ```bash
 cd contracts/solana
 npm ci
-npm test            # bankrun: local validator simulation, no network
+npm run test:bankrun   # 12 bankrun tests: local validator simulation, no network
 ```
 
 Tests load the committed fixtures `target/deploy/{xcm_htlc,spl_token}.so` and

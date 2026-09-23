@@ -171,6 +171,14 @@ solana program deploy target/deploy/xcm_htlc.so --program-id target/deploy/xcm_h
 anchor test --skip-local-validator
 ```
 
+Two test files:
+
+- `tests/bankrun_e2e.ts` — the 12 bankrun tests (no validator needed).
+  `npm run test:bankrun`. This is what CI runs.
+- `tests/xcm_htlc.ts` — the same 12 cases against a live local validator
+  (needs `ANCHOR_PROVIDER_URL` + `ANCHOR_WALLET`, i.e. `anchor test`).
+  Not run in CI.
+
 ## Security Notes
 
 - **Independent audit required before mainnet.** This code has not been audited.

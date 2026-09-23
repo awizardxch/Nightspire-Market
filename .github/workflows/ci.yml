@@ -54,7 +54,7 @@ jobs:
         working-directory: contracts/solana
         run: |
           npm ci
-          npm test
+          npm run test:bankrun
         # NOTE: tests run against the committed fixtures
         # target/deploy/{xcm_htlc,spl_token}.so and target/idl/xcm_htlc.json —
         # no Solana toolchain build needed. To rebuild the program binary,
