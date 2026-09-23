@@ -1,0 +1,19 @@
+{
+  "name": "worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "node scripts/deploy.js",
+    "demo": "bash scripts/demo.sh",
+    "test:reservations": "node scripts/test-reservations.js",
+    "test:recovery": "node scripts/test-recovery.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "viem": "^2.56.8"
+  },
+  "type": "module"
+}

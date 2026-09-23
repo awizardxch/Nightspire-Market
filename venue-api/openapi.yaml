@@ -1,0 +1,785 @@
+openapi: 3.1.0
+info:
+  title: Nightspire Marketplace Venue API
+  version: 1.0.0-draft
+  description: |
+    Read-only venue API for the Nightspire cross-chain marketplace (spec v1).
+    Served by the marketplace relay; consumed by cast.awizard.dev as the
+    marketplace venue UI: offer board, per-offer fill/remaining tracking,
+    1:1 quotes for canonical bridged tokens, and filler auction views.
+
+    Conventions:
+    - All token amounts are STRINGS in integer base units (spec §6.2 — integer
+      base-unit arithmetic everywhere; no floats).
+    - Relay-computed `advisory` fields are UNSIGNED hints derived from
+      verified on-chain locks. Chain state is truth; relay data is a hint
+      (spec §12, rule zero). The maker's signed commitment-ack is authoritative
+      for reservations (spec §7).
+    - The relay never touches funds and never signs on anyone's behalf; every
+      relay message is signed with the pinned relay identity key (spec §12).
+    - This document is a static contract for now — no implementation yet.
+      The relay serves these endpoints under /v1. Additive changes only
+      (see README.md versioning note).
+  license:
+    name: Draft — tracks Nightspire cross-chain marketplace spec v1
+
+servers:
+  - url: https://relay.nightspire.example/v1
+    description: >-
+      Placeholder base URL — relay hosting is undecided (spec §18 Q3).
+      Replace with the live relay base URL at implementation time.
+
+paths:
+  /v1/offers:
+    get:
+      operationId: listOffers
+      summary: List offers (order book view)
+      description: |
+        Relay order book rendered as the venue's offer board. Every entry
+        carries the full CrossChainOffer (§4) plus relay-computed advisory
+        accounting (§7) and UI badges (§5, §3.3, §6.1).
+      parameters:
+        - name: giveChain
+          in: query
+          schema: { $ref: '#/components/schemas/ChainId' }
+          description: Filter to offers giving an asset on this chain.
+        - name: wantChain
+          in: query
+          schema: { $ref: '#/components/schemas/ChainId' }
+          description: Filter to offers wanting an asset on this chain.
+        - name: giveAsset
+          in: query
+          schema: { type: string }
+          description: Filter to offers giving this asset ("native" or token contract / mint / assetId).
+        - name: wantAsset
+          in: query
+          schema: { type: string }
+          description: Filter to offers wanting this asset.
+        - name: fillMode
+          in: query
+          schema: { $ref: '#/components/schemas/FillMode' }
+          description: Filter by fill mode.
+        - name: mediated
+          in: query
+          schema: { type: boolean }
+          description: >-
+            true → only mediated offers (arbiter != null OR fiatLeg != null).
+            false → only pure-HTLC offers. Omitted → all offers.
+        - name: fiatOnly
+          in: query
+          schema: { type: boolean }
+          description: true → only offers carrying a fiat leg (§3.3).
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        '200':
+          description: Page of offers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferList' }
+        '400':
+          description: Bad query parameters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/offers/{offerId}:
+    get:
+      operationId: getOffer
+      summary: Single offer with its fills
+      description: |
+        Full offer view for the offer-detail page: the offer (fields + advisory
+        + badges) and every fill's HTLC phase view. Fills are ordered
+        chronologically.
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Offer detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferDetail' }
+        '404':
+          description: Unknown offerId.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/quotes:
+    get:
+      operationId: getQuote
+      summary: 1:1 quote for a canonical bridged token pair
+      description: |
+        Quotes "give X on chain A ↔ want X on chain B" for canonical bridged
+        tokens (§6). MUST include the §6.2 decimal-truncation disclosure: the
+        exact post-truncation settling amount and the remainder that stays
+        locked in the bridge vault (dust collector, never minted). The UI MUST
+        display the exact post-truncation amount before the user commits.
+
+        validationStatus flags provisional registry entries: the UI MUST NOT
+        present a 1:1 quote against an unvalidated (provisional) or
+        unregistered leg as a firm 1:1 quote (spec §6.1).
+      parameters:
+        - name: giveChain
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/ChainId' }
+        - name: giveAsset
+          in: query
+          required: true
+          schema: { type: string }
+          description: Give-side asset ("native" or token contract / mint / assetId).
+        - name: wantChain
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/ChainId' }
+        - name: wantAsset
+          in: query
+          required: true
+          schema: { type: string }
+          description: Want-side asset ("native" or token contract / mint / assetId).
+        - name: amount
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/BaseUnits' }
+          description: Give-side amount in base units (string).
+      responses:
+        '200':
+          description: Quote with truncation disclosure and validation flags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteResponse' }
+        '404':
+          description: Asset not in the token registry on that chain.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/auctions/{auctionId}:
+    get:
+      operationId: getAuction
+      summary: Auction tick chain, acceptances, and outcome
+      description: |
+        Verifiable Dutch auction view (§8): the relay-signed hash-chained tick
+        sequence, the full signed acceptance set, and — once decided — the
+        signed outcome record. Anyone can recompute the winner from the tick
+        chain + acceptance set using winnerRule; a declared winner violating
+        the rule is provably invalid.
+      parameters:
+        - name: auctionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Auction view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuctionView' }
+        '404':
+          description: Unknown auctionId.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/fillers/{address}:
+    get:
+      operationId: getFiller
+      summary: Filler reputation profile
+      description: |
+        Relay-tracked filler reputation (§8): stake in the deployment's
+        registry contract plus completed/abandoned/slashed counts. Makers may
+        set minimum standing on offers; the UI surfaces this before a taker
+        commits to a solver-routed fill.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema: { type: string }
+          description: Filler registry address (on the deployment's registry chain).
+      responses:
+        '200':
+          description: Filler profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FillerProfile' }
+        '404':
+          description: Address not a registered filler.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/tokens:
+    get:
+      operationId: listTokens
+      summary: Canonical token registry
+      description: |
+        The relay's token registry (§6.1): one entry per EVM chain per token,
+        mapping the identical CREATE2 address to the deterministic Chia CAT
+        assetId and/or the Solana wrapped mint, with both decimals and the
+        backing level. The registry is convenience, not authority — every entry
+        is self-verifying (recompute the hash). Entries with validationStatus
+        "provisional" are NOT yet validated on testnet (§6.1 VALIDATION
+        REQUIRED); the venue UI MUST NOT quote 1:1 swaps against them.
+      parameters:
+        - name: chain
+          in: query
+          schema: { $ref: '#/components/schemas/ChainId' }
+          description: Filter to entries for this chain.
+        - name: validationStatus
+          in: query
+          schema: { type: string, enum: [validated, provisional] }
+          description: Filter by validation status.
+      responses:
+        '200':
+          description: Registry entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenList' }
+
+  /v1/log/checkpoints:
+    get:
+      operationId: listCheckpoints
+      summary: Signed Merkle checkpoints of the hash-chained event log
+      description: |
+        Signed Merkle checkpoints of the relay's append-only hash-chained
+        event log (offers, commitments, bids, fills, slashes), anchored
+        publicly (Nostr note or cheap on-chain log) per spec §12. Makes silent
+        deletion and split-view equivocation detectable.
+
+        MAY RETURN 501 IN EARLY RELAY: until the relay publishes its first
+        anchored checkpoint, this endpoint returns 501
+        {code: "checkpoints_not_ready"}. UIs must handle 501 as "not yet
+        available", not as an error.
+      responses:
+        '200':
+          description: Checkpoint list, newest last.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckpointList' }
+        '501':
+          description: Early relay — no anchored checkpoint published yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  schemas:
+    # ---------- primitives ----------
+    ChainId:
+      type: string
+      enum:
+        - robinhood
+        - base
+        - ethereum
+        - solana
+        - chia
+        - robinhood-testnet
+        - base-sepolia
+        - ethereum-sepolia
+        - solana-devnet
+        - chia-testnet11
+      description: >-
+        Chain identifier. Mainnet: robinhood | base | ethereum | solana | chia.
+        Testnet variants mirror the pilot staging (spec §16): robinhood-testnet
+        | base-sepolia | ethereum-sepolia | solana-devnet | chia-testnet11.
+
+    BaseUnits:
+      type: string
+      pattern: '^[0-9]+$'
+      description: >-
+        Integer token amount in base units, as a string (spec §6.2 — integer
+        arithmetic everywhere; never floats). "native" amounts use the chain's
+        smallest unit (wei, lamports, mojos).
+
+    FillMode:
+      type: string
+      enum: [direct, solver, any]
+      description: direct = maker↔taker only; solver = Dutch auction to registered fillers; any = whichever fills first.
+
+    OfferStatus:
+      type: string
+      enum: [open, filling, filled, expired, cancelled]
+      description: >-
+        Relay-computed advisory offer status (§7): open = remaining > 0 with no
+        active reservations/in-flight fills; filling = reservations or in-flight
+        fills exist; filled = filledAmount == giveAmount; expired = past expiry
+        with remaining > 0; cancelled = maker cancelled the remainder.
+
+    FillPhase:
+      type: string
+      enum: [committed, makerLocked, takerLocked, claimed, refunded]
+      description: >-
+        Per-fill HTLC phase (§3.1): committed = reservation acked, no lock yet;
+        makerLocked = HTLC_A on-chain; takerLocked = HTLC_B on-chain;
+        claimed = preimage revealed, both legs claimed (settled);
+        refunded = timelock refund path taken.
+
+    Standing:
+      type: string
+      enum: [good, warning, poor]
+      description: >-
+        Relay-computed filler reputation tier from completed/abandoned/slashed
+        counts (§8). Makers may set a minimum standing on offers.
+
+    LegValidationStatus:
+      type: string
+      enum: [validated, provisional, unregistered]
+      description: >-
+        Registry validation of a canonical-token leg (§6.1): validated = bridge
+        TAIL constructed and hash-stability verified; provisional = in the
+        registry but NOT yet validated — the UI must not quote 1:1 against it;
+        unregistered = asset not in the registry (e.g. native or arbitrary
+        token) — not a canonical bridged leg.
+
+    # ---------- offer (§4) ----------
+    TakerCredential:
+      type: object
+      required: [issuer, schemaId]
+      properties:
+        issuer: { type: string, description: Credential issuer address. }
+        schemaId: { type: string, description: Credential schema id (KYC gate). }
+      description: KYC gate — required credential proof on the fill commitment (spec §4).
+
+    FiatLeg:
+      type: object
+      required: [currency, rails, providerId]
+      properties:
+        currency: { type: string, example: 'USD', description: ISO 4217 fiat currency code. }
+        rails: { type: string, example: 'ach', description: 'Off-chain rails, e.g. ach | wire | sepa (spec §3.3).' }
+        providerId: { type: string, description: Ramp provider identity (registry id). }
+      description: >-
+        Fiat ramp leg (spec §3.3). GUARANTEE: fiat legs NEVER settle atomically.
+        Presence of a fiat leg makes the offer mediated; the UI MUST badge it.
+
+    OfferSignatures:
+      type: object
+      properties:
+        evm: { type: ['string', 'null'], description: EIP-712 signature over the typed offer. }
+        solana: { type: ['string', 'null'], description: ed25519 signature over canonical bytes. }
+        chia: { type: ['string', 'null'], description: BLS signature over the offer-terms hash. }
+      description: >-
+        Per-chain signatures (spec §4). Verifiers check the slot matching
+        giveChain: EIP-712 for EVM makers; SHA-256 of canonical JSON (sorted
+        keys) for Solana/Chia makers.
+
+    CrossChainOffer:
+      type: object
+      description: ERC-7683-shaped intent (spec §4). Identical for direct and solver-routed swaps.
+      required:
+        - version
+        - offerId
+        - fillMode
+        - giveChain
+        - giveAsset
+        - giveAmount
+        - wantChain
+        - wantAsset
+        - wantAmount
+        - minFillAmount
+        - makerAddr
+        - makerRecvAddr
+        - makerTimelockSec
+        - takerTimelockSec
+        - commitWindowSec
+        - expiry
+        - nonce
+        - signatures
+      properties:
+        version: { type: integer, const: 1, description: Offer format version. }
+        offerId: { type: string, format: uuid, description: Unique offer id. }
+        fillMode: { $ref: '#/components/schemas/FillMode' }
+        giveChain: { $ref: '#/components/schemas/ChainId' }
+        giveAsset:
+          type: string
+          description: '"native" or the token contract / mint / assetId on giveChain.'
+        giveAmount: { $ref: '#/components/schemas/BaseUnits', description: Total offer size in base units. }
+        wantChain: { $ref: '#/components/schemas/ChainId' }
+        wantAsset:
+          type: string
+          description: '"native" or the token contract / mint / assetId on wantChain.'
+        wantAmount: { $ref: '#/components/schemas/BaseUnits', description: Total wanted; pro-rata per fill. }
+        minFillAmount: { $ref: '#/components/schemas/BaseUnits', description: Smallest acceptable fill (dust guard); minFillAmount ≤ f ≤ remaining (§7). }
+        makerAddr: { type: string, description: Maker address on giveChain (refundAddr of HTLC_A). }
+        makerRecvAddr: { type: string, description: Maker's receiving address on wantChain (receiver of HTLC_B); may differ from makerAddr. }
+        takerAddr: { type: ['string', 'null'], description: null = open offer; set = directed (0x-RFQ style). }
+        takerCredential:
+          anyOf:
+            - $ref: '#/components/schemas/TakerCredential'
+            - type: 'null'
+          description: KYC gate; null = no credential required.
+        arbiter:
+          type: ['string', 'null']
+          description: >-
+            Opt-in arbitration address (spec §5). null = pure HTLC, math-only
+            trust (default). Set = MEDIATED: the arbiter can unilaterally
+            redirect escrowed funds before timelock expiry. Never added after
+            the fact; the venue UI MUST badge arbiter-enabled offers.
+        fiatLeg:
+          anyOf:
+            - $ref: '#/components/schemas/FiatLeg'
+            - type: 'null'
+          description: Fiat ramp leg (§3.3); null = crypto-only.
+        hashlock:
+          type: ['string', 'null']
+          description: >-
+            Set by the MAKER at lock time, h = sha256(s) with a FRESH secret s
+            per fill — never reused across fills (§3.1). null on a resting
+            offer (per-fill hashlocks appear on FillView).
+        makerTimelockSec: { type: integer, description: T1 — maker leg timelock, seconds. Locked first, expires last (§9). }
+        takerTimelockSec: { type: integer, description: T2 — taker/filler leg timelock, seconds. T2 < T1 (§9). }
+        commitWindowSec: { type: integer, description: 'W — lock deadlines and reservation TTL (§3.1).' }
+        auctionWindowSec: { type: integer, description: Solver mode — Dutch auction duration, seconds (e.g. 300). }
+        auctionFloorBps: { type: integer, description: Solver mode — reserve floor vs ask, basis points (e.g. 50). }
+        expiry: { type: string, description: Offer expiry as unix timestamp (string). }
+        nonce: { type: string, description: Random nonce for offer uniqueness. }
+        signatures: { $ref: '#/components/schemas/OfferSignatures' }
+        minFillerStanding:
+          anyOf:
+            - $ref: '#/components/schemas/Standing'
+            - type: 'null'
+          description: >-
+            Optional minimum filler standing for solver-mode fills (spec §8).
+            Venue extension beyond §4 (additive).
+
+    OfferAdvisory:
+      type: object
+      description: >-
+        Relay-computed, UNSIGNED, advisory accounting (§7) — derived from
+        verified on-chain locks, never self-reported. Chain state is truth;
+        relay data is a hint (§12). The maker's signed commitment-ack is
+        authoritative for reservations.
+      required: [filledAmount, reservedAmount, remainingAmount, status, updatedAt]
+      properties:
+        filledAmount: { $ref: '#/components/schemas/BaseUnits', description: Sum of settled (claimed) fills, from verified on-chain locks. }
+        reservedAmount: { $ref: '#/components/schemas/BaseUnits', description: Sum of active reservations — advisory mirror of the maker's reservation ledger (§7). }
+        remainingAmount: { $ref: '#/components/schemas/BaseUnits', description: giveAmount − filledAmount − active reservations. }
+        status: { $ref: '#/components/schemas/OfferStatus' }
+        updatedAt: { type: string, format: date-time, description: When the relay last recomputed this advisory view. }
+
+    OfferBadges:
+      type: object
+      description: UI badge requirements — the venue MUST enforce these (spec §5, §3.3, §6.1).
+      required: [isMediated, hasFiatLeg, validationStatus]
+      properties:
+        isMediated:
+          type: boolean
+          description: >-
+            true when arbiter != null. UI MUST badge as mediated/trusted —
+            naming an arbiter converts the swap from trustless to mediated
+            (spec §5).
+        hasFiatLeg:
+          type: boolean
+          description: >-
+            true when fiatLeg != null. UI MUST badge as mediated — fiat legs
+            never settle atomically; the crypto leg(s) are atomic, the fiat
+            leg is reputation-based with signed receipts (spec §3.3). The UI
+            MUST surface the provider's standing before a taker commits.
+        validationStatus:
+          type: object
+          required: [give, want]
+          description: Canonical-token registry validation per leg (§6.1).
+          properties:
+            give: { $ref: '#/components/schemas/LegValidationStatus' }
+            want: { $ref: '#/components/schemas/LegValidationStatus' }
+
+    OfferWithAdvisory:
+      allOf:
+        - $ref: '#/components/schemas/CrossChainOffer'
+        - type: object
+          required: [advisory, badges]
+          properties:
+            advisory: { $ref: '#/components/schemas/OfferAdvisory' }
+            badges: { $ref: '#/components/schemas/OfferBadges' }
+      description: Full offer as served by the venue API — §4 fields plus relay advisory plus UI badges.
+
+    OfferList:
+      type: object
+      required: [offers, page, limit, total]
+      properties:
+        offers: { type: array, items: { $ref: '#/components/schemas/OfferWithAdvisory' } }
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer, description: Total matching offers across all pages. }
+
+    # ---------- fills (§3.1, §5, §7) ----------
+    FillView:
+      type: object
+      description: >-
+        One fill of an offer — an independent HTLC pair at pro-rata rate
+        (atomicity is per-fill, never per-offer). fillId = sha256(offerId ||
+        fillNonce), bound into every escrow id/puzzle (§5).
+      required: [fillId, offerId, f, hashlock, makerTimelockSec, takerTimelockSec, phase]
+      properties:
+        fillId: { type: string, description: sha256(offerId || fillNonce) — unique per fill (§5). }
+        offerId: { type: string, format: uuid }
+        f: { $ref: '#/components/schemas/BaseUnits', description: Fill amount; minFillAmount ≤ f ≤ remaining (§7). }
+        hashlock: { type: ['string', 'null'], description: h = sha256(s), maker-generated, fresh per fill. null while phase = committed. }
+        makerTimelockSec: { type: integer, description: T1 for this fill's HTLC_A. }
+        takerTimelockSec: { type: integer, description: T2 for this fill's HTLC_B. }
+        phase: { $ref: '#/components/schemas/FillPhase' }
+        counterpartyAddr:
+          type: ['string', 'null']
+          description: Taker address (direct) or winning filler address (solver) that locked the counter-leg.
+        reservedUntil:
+          type: ['integer', 'null']
+          description: Unix ts — reservation expiry (§7); the amount returns to the pool if no lock lands by W.
+        lockProofs:
+          type: ['object', 'null']
+          description: Evidence hashes carried with relay lock claims (txid + block height; spec §12).
+          properties:
+            makerLock: { type: ['object', 'null'], properties: { txid: { type: string }, blockHeight: { type: integer } } }
+            takerLock: { type: ['object', 'null'], properties: { txid: { type: string }, blockHeight: { type: integer } } }
+
+    OfferDetail:
+      type: object
+      required: [offer, fills]
+      properties:
+        offer: { $ref: '#/components/schemas/OfferWithAdvisory' }
+        fills: { type: array, items: { $ref: '#/components/schemas/FillView' }, description: Fills in chronological order. }
+
+    # ---------- quotes (§6.2, §6.4) ----------
+    QuoteResponse:
+      type: object
+      description: >-
+        1:1 quote for a canonical bridged token pair. Carries the §6.2
+        decimal-truncation disclosure and the §6.1 validation flags.
+      required:
+        - giveChain
+        - giveAsset
+        - giveAmount
+        - wantChain
+        - wantAsset
+        - grossOut
+        - netOut
+        - truncatedRemainder
+        - rate
+        - truncationNote
+        - validationStatus
+        - oneToOneQuotable
+        - feeBps
+      properties:
+        giveChain: { $ref: '#/components/schemas/ChainId' }
+        giveAsset: { type: string }
+        giveAmount: { $ref: '#/components/schemas/BaseUnits', description: Quoted input amount (echo of request). }
+        wantChain: { $ref: '#/components/schemas/ChainId' }
+        wantAsset: { type: string }
+        grossOut: { $ref: '#/components/schemas/BaseUnits', description: Computed output before decimal truncation. }
+        netOut:
+          $ref: '#/components/schemas/BaseUnits'
+          description: >-
+            EXACT post-truncation settling amount (§6.2) — this is what the
+            swap settles, displayed to the user before they commit.
+        truncatedRemainder:
+          $ref: '#/components/schemas/BaseUnits'
+          description: >-
+            Fractional remainder from the decimal mismatch — truncates toward
+            the bridge and stays locked in the vault (dust collector), never
+            minted (§6.2).
+        rate:
+          type: string
+          description: >-
+            Quoted net rate as a decimal string: want-side base units per one
+            give-side base unit (netOut / giveAmount), e.g. "0.9998" for a
+            1:1-pegged pair carrying a 2 bps spread.
+        truncationNote:
+          type: string
+          description: >-
+            Human-readable §6.2 disclosure, e.g. "Decimals differ (6 on Base vs
+            3 on Chia): 1,000,000 base units in → 999,800 base units out after
+            truncation; 200 base units remain locked in the bridge vault and
+            are never minted."
+        validationStatus:
+          type: object
+          required: [give, want]
+          description: Registry validation per leg (§6.1). Provisional legs MUST be flagged.
+          properties:
+            give: { $ref: '#/components/schemas/LegValidationStatus' }
+            want: { $ref: '#/components/schemas/LegValidationStatus' }
+        oneToOneQuotable:
+          type: boolean
+          description: >-
+            false when either leg is provisional or unregistered — the UI MUST
+            NOT present this as a firm 1:1 quote (spec §6.1).
+        feeBps:
+          type: integer
+          description: >-
+            Protocol fee parameter in basis points (spec §13): 0 while
+            bootstrapping; target schedule 0.05% → 0.42% long-term.
+
+    # ---------- auctions (§8) ----------
+    AuctionTick:
+      type: object
+      description: One discrete signed tick of the Dutch auction (§8).
+      required: [auctionId, tick, price, prevTickHash, relaySig]
+      properties:
+        auctionId: { type: string }
+        tick: { type: integer, minimum: 0, description: Tick sequence number (e.g. one per price step). }
+        price:
+          $ref: '#/components/schemas/BaseUnits'
+          description: >-
+            Decayed ask price at this tick, in want-side base units per one
+            give-side base unit scaled by 1e6 (decimal fixed-point). Decays
+            linearly from the maker's ask rate to the reserve floor.
+        prevTickHash:
+          type: string
+          description: >-
+            Hash of the previous tick record (hex). "0x" + 64 zeros for tick 0.
+            The chain makes price-history rewrites detectable (§8).
+        relaySig:
+          type: string
+          description: Relay signature over the canonical tick bytes (pinned relay identity key, §12).
+
+    Acceptance:
+      type: object
+      description: A filler's signed acceptance of a published tick (§8).
+      required: [auctionId, tick, price, f, fillerAddr, sig]
+      properties:
+        auctionId: { type: string }
+        tick: { type: integer, description: The published tick this acceptance references. }
+        price:
+          $ref: '#/components/schemas/BaseUnits'
+          description: Accepted price — valid only if the tick exists in the chain and price ≥ tick.price (§8).
+        f: { $ref: '#/components/schemas/BaseUnits', description: Fill amount the filler commits to lock. }
+        fillerAddr: { type: string, description: Accepting filler's registry address. }
+        sig: { type: string, description: Filler's signature over the canonical acceptance bytes — its non-repudiable commitment; the slash evidence (1) in §8. }
+
+    ExclusiveWindow:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: integer, description: Exclusive lock window start (unix ts). }
+        end: { type: integer, description: Exclusive lock window end (unix ts). Winner failing to lock within EW is slashable (§8). }
+
+    AuctionOutcome:
+      type: object
+      description: The relay's signed auction outcome record — evidence base for slashing (§8).
+      required: [winner, winningTick, f, exclusiveWindow, relaySig]
+      properties:
+        winner: { type: string, description: Winning filler address. }
+        winningTick: { type: integer, description: The tick the winning acceptance referenced. }
+        f: { $ref: '#/components/schemas/BaseUnits', description: Winning fill amount. }
+        exclusiveWindow: { $ref: '#/components/schemas/ExclusiveWindow' }
+        relaySig: { type: string, description: Relay signature over the canonical outcome record. }
+
+    AuctionView:
+      type: object
+      description: Full verifiable auction view (§8).
+      required: [auctionId, offerId, status, ticks, acceptances, winnerRule]
+      properties:
+        auctionId: { type: string }
+        offerId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [open, exclusive, settled, reauctioned]
+          description: open = ticks still publishing; exclusive = winner in its lock window; settled = outcome published; reauctioned = winner slashed/ghosted and the intent re-auctioned.
+        ticks: { type: array, items: { $ref: '#/components/schemas/AuctionTick' }, description: Hash-chained tick sequence, ascending. }
+        acceptances: { type: array, items: { $ref: '#/components/schemas/Acceptance' }, description: Full published acceptance set. }
+        outcome:
+          anyOf:
+            - $ref: '#/components/schemas/AuctionOutcome'
+            - type: 'null'
+          description: null until the auction decides.
+        winnerRule:
+          type: string
+          const: 'sort (tick ASC, sha256(fillerAddr) ASC)'
+          description: >-
+            Deterministic winner rule (spec §8): sort valid acceptances by
+            (tick ASC, sha256(fillerAddr) ASC); the first entry wins.
+            Recomputable by anyone from ticks + acceptances.
+
+    # ---------- fillers (§8) ----------
+    FillerProfile:
+      type: object
+      description: Registered, staked filler with relay-tracked reputation (§8).
+      required: [address, registryChain, stake, stakeAsset, completed, abandoned, slashed, standing]
+      properties:
+        address: { type: string, description: Filler registry address. }
+        registryChain: { $ref: '#/components/schemas/ChainId', description: Deployment's primary chain hosting the stake registry (§8). }
+        stake: { $ref: '#/components/schemas/BaseUnits', description: Staked amount in the registry contract. }
+        stakeAsset: { type: string, description: Staking asset ("native" or token), on registryChain. }
+        completed: { type: integer, description: Completed fills. }
+        abandoned: { type: integer, description: Abandoned fills (ghosted). }
+        slashed: { type: integer, description: Slashing events against this filler. }
+        standing: { $ref: '#/components/schemas/Standing', description: Relay-computed reputation tier; zero/negative standing = no fills. }
+
+    # ---------- token registry (§6.1) ----------
+    TokenEntry:
+      type: object
+      description: >-
+        Canonical token registry entry (§6.1) — one per EVM chain per token.
+        Same CREATE2 address on every EVM chain → one deterministic Chia CAT
+        assetId and/or one Solana wrapped mint. Self-verifying: recompute the
+        hash; the registry is convenience, not authority.
+      required: [evmChainId, tokenAddress, decimalsEVM, decimalsChia, backing, validationStatus]
+      properties:
+        evmChainId: { type: integer, example: 4663, description: EVM chain id (e.g. 4663 = Robinhood Chain). }
+        tokenAddress: { type: string, description: Identical CREATE2 deployment address on every EVM chain. }
+        symbol: { type: string, description: Display symbol (informational only). }
+        chiaAssetId: { type: ['string', 'null'], description: Deterministic CAT assetId from the canonical bridge-TAIL (§6.1); provisional until the TAIL is constructed and hash-stability verified on testnet11. }
+        solanaMint: { type: ['string', 'null'], description: Wrapped mint (PDA derived from chainId + tokenAddress) — same pattern extended to Solana (§6.1). }
+        decimalsEVM: { type: integer, description: Token decimals on EVM. }
+        decimalsChia: { type: integer, description: CAT decimals on Chia (identical where possible; else 1:1 economic rate is 10^(decEVM − decChia) base units, §6.2). }
+        backing:
+          type: string
+          enum: [issuer, validators]
+          description: >-
+            Backing / mint-authority level (§6.3): issuer = Level 1
+            issuer-operated bridge key; validators = Level 2 N-of-M validator set.
+        validationStatus:
+          type: string
+          enum: [validated, provisional]
+          description: >-
+            validated = canonical bridge-TAIL constructed and hash-stability
+            verified; provisional = NOT yet validated — the venue UI MUST NOT
+            quote 1:1 swaps against this entry (§6.1 VALIDATION REQUIRED).
+
+    TokenList:
+      type: object
+      required: [tokens]
+      properties:
+        tokens: { type: array, items: { $ref: '#/components/schemas/TokenEntry' } }
+
+    # ---------- checkpoints (§12) ----------
+    Checkpoint:
+      type: object
+      description: Signed Merkle checkpoint of the hash-chained event log (§12).
+      required: [sequence, merkleRoot, eventCount, publishedAt, relaySig]
+      properties:
+        sequence: { type: integer, description: Checkpoint sequence number. }
+        merkleRoot: { type: string, description: Hex Merkle root over the event log up to eventCount. }
+        eventCount: { type: integer, description: Number of log events covered. }
+        publishedAt: { type: string, format: date-time }
+        relaySig: { type: string, description: Relay signature over (sequence, merkleRoot, eventCount) with the pinned relay identity key (§12). }
+        anchor:
+          type: ['object', 'null']
+          description: Public anchor proving listing (spec §12).
+          properties:
+            kind: { type: string, enum: [nostr, chain-log] }
+            ref: { type: string, description: Nostr note id or chain-log tx reference. }
+
+    CheckpointList:
+      type: object
+      required: [checkpoints]
+      properties:
+        checkpoints: { type: array, items: { $ref: '#/components/schemas/Checkpoint' } }
+
+    # ---------- errors ----------
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >-
+            Machine-readable code, e.g. offer_not_found | auction_not_found |
+            filler_not_registered | asset_not_registered | bad_params |
+            checkpoints_not_ready.
+        message: { type: string }
