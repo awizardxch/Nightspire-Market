@@ -1,0 +1,7 @@
+# Pinned Python dependencies for the Chia CLVM test suite.
+# Install: pip install -r requirements.txt
+# Provides: clvm_tools (compiler + `brun` runner), blspy (BLS signatures),
+# clvm (s-expression tooling). No chain interaction — local only.
+blspy==2.0.3
+clvm==0.9.15
+clvm_tools==0.4.10

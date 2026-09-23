@@ -1,0 +1,4 @@
+# Pinned Python dependencies for the venue API contract validation.
+# Install: pip install -r requirements.txt
+pyyaml==6.0.1
+jsonschema==4.10.3

@@ -11,67 +11,151 @@ Do not edit anything under `../specs/` — the spec is the contract this code im
 ## Hard constraints
 
 - **NO deployments.** No testnet, no mainnet. Nothing here has been deployed anywhere.
-- **NO broadcasts.** No transactions leave this machine toward any chain. All chain
-  interaction is `forge test` against Foundry's in-process EVM.
-- **NO private keys.** No keys are stored, generated for production, or committed.
-  Test keys exist only inside test code (`vm.sign` / `vm.addr` with throwaway values).
-- **Local-only.** `forge build` + `forge test` is the entire execution surface.
+- **NO broadcasts.** No transactions leave this machine toward any chain.
+- **NO private keys.** No production keys are stored, generated, or committed.
+  Throwaway test keys exist only inside test code and local runtime state
+  (gitignored).
+- **Local-only.** Every suite below runs against a local simulator:
+  Foundry's in-process EVM / anvil, Solana bankrun, Chia `brun`, and the
+  relay/worker harnesses. External validation (testnet pilots, audits) is
+  planned in `docs/runbooks/` and has NOT been performed.
 
 ## How to run
 
-Prereqs: [Foundry](https://book.getfoundry.sh/) (`forge` on PATH).
+Prereqs: [Foundry](https://book.getfoundry.sh/) (`forge`, `anvil` on PATH),
+Node 24+, Python 3.12.
+
+### EVM contracts (16 tests)
 
 ```bash
 cd contracts/evm
-forge build        # compile contracts
-forge test         # run the full suite (in-process EVM, no network)
-forge test -vvv    # with traces
+forge build
+forge test          # in-process EVM, no network
 ```
 
-OpenZeppelin sources used (ReentrancyGuard, ECDSA, SafeERC20) are vendored under
-`contracts/evm/lib/oz/` — no submodule checkout or network needed to build.
+OpenZeppelin sources used (ReentrancyGuard, ECDSA, SafeERC20) are vendored
+under `contracts/evm/lib/oz/` — no submodule checkout or network needed.
+
+### Chia puzzles (36 tests)
+
+```bash
+pip install -r contracts/chia/requirements.txt   # blspy, clvm, clvm_tools (pinned)
+python3 contracts/chia/run_tests.py              # compiles with clvm_tools, runs with brun
+```
+
+Local only: proves branch logic and BLS message bytes, NOT testnet11/mainnet
+consensus. See `contracts/chia/README.md`.
+
+### Solana program (12 tests)
+
+```bash
+cd contracts/solana
+npm ci
+npm test            # bankrun: local validator simulation, no network
+```
+
+Tests load the committed fixtures `target/deploy/{xcm_htlc,spl_token}.so` and
+`target/idl/xcm_htlc.json` — no Solana toolchain build needed. To rebuild the
+program binary: `cargo build-sbf` (see `contracts/solana/README.md`).
+
+### Relay smoke test (~30 assertions)
+
+```bash
+cd relay
+npm run smoke       # boots the server on a scratch dir, runs the full flow
+```
+
+No dependencies — pure Node stdlib. Covers: signed offers (ed25519 +
+Solana-style verified, invalid rejected), commitment/ack reservation, lock
+proofs + watcher confirmations (`chainVerified` false→true with evidence),
+auction ticks (hash-chained, live-verified), signed acceptances (tampered /
+unsigned / below-tick rejected), deterministic winner rule recomputed by hand,
+signed Merkle checkpoints (root recomputed from the log), full log-chain
+verification.
+
+```bash
+node server.js      # run the relay (DATA_DIR env overrides the data dir)
+```
+
+### Worker demo (9 assertions)
+
+```bash
+cd worker
+npm ci
+npm run demo        # boots anvil, deploys two factories, runs the full
+                    # direct-swap demo + reservation race/crash tests
+```
+
+Local anvil only.
+
+### Venue API validation
+
+```bash
+pip install -r venue-api/requirements.txt        # pyyaml, jsonschema (pinned)
+python3 venue-api/validate.py                    # openapi.yaml + 25 examples validated
+```
+
+### Full CI-equivalent local run
+
+```bash
+# from the repo root — mirrors .github/workflows/ci.yml step for step:
+(cd contracts/evm    && forge build && forge test)
+python3 contracts/chia/run_tests.py
+(cd contracts/solana && npm ci && npm test)
+(cd relay            && npm run smoke)
+(cd worker           && npm ci && npm run demo)
+python3 venue-api/validate.py
+```
 
 ## Repo layout
 
 ```
 cross-chain-marketplace/
-├── README.md                    # this file
-├── .gitignore
+├── README.md
+├── .github/workflows/ci.yml   # all suites above, local-only, no secrets
 ├── docs/
-│   └── ARCHITECTURE.md          # spec § → code map, working vs stubbed
+│   ├── ARCHITECTURE.md         # spec § → code map, working vs stubbed
+│   └── runbooks/               # DOCS ONLY — do not execute without approval
+│       ├── testnet-pilot.md    # 4-phase pilot plan (not started)
+│       └── audit-prep.md       # audit scope freeze + evidence list (not started)
 ├── contracts/
-│   └── evm/                     # Foundry project (this slice)
-│       ├── foundry.toml
-│       ├── src/
-│       │   ├── HTLCFactory.sol  # per-fill escrow factory, CREATE2 deterministic
-│       │   └── HTLCEscrow.sol   # the HTLC escrow: withdraw / refund / arbitrate
-│       ├── test/
-│       │   ├── HTLC.t.sol       # unit tests: happy paths, refund, arbiter,
-│       │   │                    #   exclusive windows, determinism
-│       │   ├── DirectSwapE2E.t.sol  # full 7-step §3.1 flow, both agents, one test
-│       │   └── mocks/MockERC20.sol
-│       ├── lib/
-│       │   ├── forge-std/       # submodule (forge init)
-│       │   └── oz/              # vendored OZ subset (no network needed)
-│       └── script/              # (reserved for future deploy scripts — NOT used; see constraints)
-├── relay/                       # sibling slice (not this repo's scope)
-└── venue-api/                   # sibling slice (not this repo's scope)
+│   ├── evm/                    # Foundry: HTLCFactory + HTLCEscrow + Dutch auction
+│   ├── solana/                 # Anchor: xcm_htlc program + bankrun tests
+│   └── chia/                   # CLVM puzzles + brun test suite
+├── relay/                      # order-book relay: offers, auctions, checkpoints
+├── worker/                     # fill worker: commit → lock → claim/refund + recovery
+└── venue-api/                  # read-only venue contract (openapi.yaml + examples)
 ```
 
-`relay/` and `venue-api/` are owned by sibling agents — this slice owns the repo
-root scaffold, `contracts/evm`, and `docs/`.
+## What works now
 
-## What works now (contracts/evm)
+- **EVM** (`contracts/evm`): `HTLCFactory` (deterministic CREATE2 escrows,
+  ERC-20 + native, `fillId`-bound) and `HTLCEscrow` (`withdraw` with SHA-256
+  preimage + exclusive-claimer window, `refund` to explicit `refundAddr`,
+  opt-in **MEDIATED** `arbitrate`). No fee skim, no proxies, no admin keys.
+- **Solana** (`contracts/solana`): `xcm_htlc` program —
+  initialize/withdraw/refund/arbitrate with PDA escrows, timelocks,
+  exclusive-claimer window. Cross-VM SHA-256 test vector included.
+- **Chia** (`contracts/chia`): HTLC-style CLVM puzzles with hashlock/timelock
+  escrow, refund paths, arbiter split; every branch proven via `brun`.
+- **Relay** (`relay/`): signed offers (ed25519 + Solana-style verified;
+  EIP-712/Chia-BLS honestly UNVERIFIED — agents verify locally), signed
+  acceptance tickets (invalid rejected), hash-chained Dutch ticks
+  (live-verified), lock-proof `chainVerified` plumbing with watcher evidence,
+  signed Merkle checkpoints, append-only hash-chained log. Advisory only —
+  chain state is truth.
+- **Worker** (`worker/`): fill lifecycle with crash recovery.
+- **Venue API** (`venue-api/`): read-only offer-board contract, schema-validated.
 
-- `HTLCFactory.newContract(...)` — deterministic CREATE2 escrow deployment per fill.
-  ERC-20 variant pulls via `safeTransferFrom`; native variant is payable
-  (`token == address(0)`). `refundAddr` is an explicit parameter. `fillId` is
-  passed in by the caller (`sha256(offerId || fillNonce)`). View helpers
-  `computeId(...)`, `getContract(id)`, `predictAddress(...)`.
-- `HTLCEscrow` — immutable per-fill terms; `withdraw(preimage)` (SHA-256 check,
-  exclusive-claimer window honored); `refund()` (pays `refundAddr`, callable by
-  anyone); `arbitrate(...)` (opt-in **MEDIATED** branch — arbiter-signed split,
-  natspec-labeled as such per spec §5). Reentrancy-guarded, no fee skim anywhere.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the spec-section → code
+map and the working-vs-stubbed breakdown, and each component's README for
+component-level detail.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the spec-section → code map
-and the working-vs-stubbed breakdown.
+## What's NOT done (explicitly pending Speechless's approval)
+
+- Testnet pilots (Robinhood testnet ↔ Base Sepolia → Chia testnet11 → Solana
+  devnet) — planned in `docs/runbooks/testnet-pilot.md`, **not started**.
+- Canonical Chia bridge-TAIL construction / testnet11 drill — **not performed**.
+- Cross-chain slash verifier set + dispute drill — **not performed**.
+- Audits (Solana program, Chia puzzles, EVM contracts) — **not commissioned**;
+  scope freeze drafted in `docs/runbooks/audit-prep.md`.
