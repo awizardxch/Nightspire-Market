@@ -142,12 +142,17 @@ CONF_BAD="{\"fillId\":\"$FILL_ID\",\"side\":\"maker\",\"chain\":\"base-sepolia\"
 if curl -sf -X POST "$BASE/v1/lock-proofs/confirm" -H 'Content-Type: application/json' -d "$CONF_BAD" >/dev/null 2>&1; then
   fail "confirmation with mismatched h was accepted"
 fi
+# confirmation with a different txid than the mirrored one must be rejected
+CONF_BADTX="{\"fillId\":\"$FILL_ID\",\"side\":\"maker\",\"chain\":\"base-sepolia\",\"txid\":\"0xothertx0000000000000000000000000000000000000000000000000000000003\",\"blockHeight\":1,\"h\":\"$H\",\"watcherId\":\"smoke-watcher\"}"
+if curl -sf -X POST "$BASE/v1/lock-proofs/confirm" -H 'Content-Type: application/json' -d "$CONF_BADTX" >/dev/null 2>&1; then
+  fail "confirmation with mismatched txid was accepted"
+fi
 # confirmation for unknown fillId must 404
 CONF_UNKNOWN="{\"fillId\":\"nope\",\"side\":\"maker\",\"chain\":\"base-sepolia\",\"txid\":\"$TXM\",\"blockHeight\":1,\"h\":\"$H\",\"watcherId\":\"smoke-watcher\"}"
 if curl -sf -X POST "$BASE/v1/lock-proofs/confirm" -H 'Content-Type: application/json' -d "$CONF_UNKNOWN" >/dev/null 2>&1; then
   fail "confirmation for unknown fillId was accepted"
 fi
-pass "bad confirmations rejected (h mismatch, unknown fillId)"
+pass "bad confirmations rejected (h mismatch, txid mismatch, unknown fillId)"
 
 # --- 4. open auction ---
 AUC_RESP=$(curl -sf -X POST "$BASE/v1/auctions" -H 'Content-Type: application/json' \

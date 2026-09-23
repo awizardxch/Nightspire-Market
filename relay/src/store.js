@@ -330,6 +330,8 @@ class OfferStore {
           return { ok: false, code: 409, error: `chain mismatch: mirrored ${proof.chain}, confirmation says ${c.chain}` };
         if (proof.h.toLowerCase() !== c.h.toLowerCase())
           return { ok: false, code: 409, error: 'h mismatch: confirmation does not match the mirrored proof' };
+        if (proof.txid.toLowerCase() !== c.txid.toLowerCase())
+          return { ok: false, code: 409, error: 'txid mismatch: confirmation must reference the mirrored txid' };
         if (!proof.chainVerified) {
           proof.chainVerified = true;
           proof.verification = {
