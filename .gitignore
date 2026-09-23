@@ -21,6 +21,9 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Chia build artifacts
+*.sym
+
 # Secrets / env — never commit keys
 .env
 .env.*
