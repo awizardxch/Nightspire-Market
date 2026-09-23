@@ -1,0 +1,47 @@
+[package]
+name = "xcm_htlc"
+version = "0.1.0"
+description = "Nightspire cross-chain marketplace HTLC escrow (Solana leg)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "xcm_htlc"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+# idl-build is omitted: anchor-lang-idl needs `regex` (+ deps) which are not
+# in the local crates mirror. Build the IDL with `anchor idl build` after
+# fetching those crates, or generate it from the built program.
+# idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = "=0.31.2"
+# Minimal features: we only need the SPL Token (v1) CPI helpers.
+# Default features pull token-2022 / confidential-transfer / metadata
+# (whose .crate objects are unreachable from this sandbox).
+anchor-spl = { version = "=0.31.2", default-features = false, features = ["token"] }
+# NOTE: arbiter authorization is proven via a native Ed25519Program precompile
+# instruction inspected through the instructions sysvar (see
+# verify_ed25519_precompile). No ed25519-dalek dependency: direct in-program
+# curve verification blows past the 4096-byte SBF stack limit.
+# Pin the Solana SDK to the 2.2 line (matches the Agave v2.2.10 CLI);
+# without this, cargo resolves solana-program to 2.3.x.
+solana-program = "=2.2.1"
+solana-program-entrypoint = "=2.2.1"
+solana-program-memory = "=2.2.1"
+solana-native-token = "=2.2.1"
+# indexmap/hashbrown: the newest releases need rustc 1.82+ language features
+# (hashbrown 0.17 uses `&raw`, `#[expect]`, core::error); pin to the newest
+# pair that compiles on the 1.79 SBF toolchain.
+indexmap = "=2.13.0"
+hashbrown = "=0.16.1"
+# RustCrypto: avoid hybrid-array (needs 1.85 const-fn features) by staying
+# on the digest 0.10 / block-buffer 0.10 / crypto-common 0.1 line.
+digest = "=0.10.7"
+block-buffer = "=0.10.4"
+crypto-common = "=0.1.6"

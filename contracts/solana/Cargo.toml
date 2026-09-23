@@ -1,0 +1,18 @@
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+# Two crates are vendored under vendor/ because their .crate files are
+# unreachable from this sandbox's network (see vendor/README.md for
+# provenance). Remove this section to resolve them from crates.io.
+# blake3 is vendored to neuter the `traits-preview` feature (which pulls
+# digest 0.11 -> hybrid-array, uncompilable on the 1.79 SBF toolchain);
+# solana-program enables the feature but never uses the `traits` module.
+[patch.crates-io]
+solana-native-token = { path = "vendor/solana-native-token" }
+spl-token = { path = "vendor/spl-token" }
+blake3 = { path = "vendor/blake3" }
+
+[profile.release]
+overflow-checks = true
+lto = "thin"

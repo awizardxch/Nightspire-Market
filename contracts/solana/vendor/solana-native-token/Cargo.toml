@@ -1,0 +1,13 @@
+[package]
+name = "solana-native-token"
+version = "2.2.1"
+description = "Definitions for the native SOL token and its fractional lamports."
+documentation = "https://docs.rs/solana-native-token"
+authors = ["Anza Maintainers <maintainers@anza.xyz>"]
+repository = "https://github.com/anza-xyz/agave"
+homepage = "https://anza.xyz/"
+license = "Apache-2.0"
+edition = "2021"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
