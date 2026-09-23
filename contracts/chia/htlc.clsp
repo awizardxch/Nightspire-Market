@@ -1,0 +1,67 @@
+; htlc.clsp — Nightspire cross-chain marketplace HTLC, ARBITER-CAPABLE variant.
+;
+; Spec: cross-chain-marketplace SPEC.md §5c.
+;
+; Curried parameters (positional, in this exact order — the first 8 are bound
+; by curry, the last 3 arrive via the solution):
+;   HASHLOCK            32 bytes   sha256(s), committed by the maker at lock time
+;   TIMELOCK_SECONDS    int        refund opens this many seconds after the lock
+;                                  (ASSERT_SECONDS_RELATIVE — relative semantics)
+;   CLAIMER_PK          48 bytes   BLS key authorised to claim with the preimage
+;   REFUNDER_PK         48 bytes   BLS key authorised to refund after the timelock
+;   CLAIM_PUZZLE_HASH   32 bytes   claim pays here (taker/filler leg receiver)
+;   REFUND_PUZZLE_HASH  32 bytes   refund pays here (locker's refund address)
+;   FILL_ID             32 bytes   sha256(offerId || fillNonce) — binds the fill
+;   ARBITER_PK          48 bytes | ()  opt-in arbiter key; () keeps mode 2 dead
+;                                  (for a null arbiter prefer htlc_noarb.clsp,
+;                                  which has no arbitrate branch at all)
+;   MODE PAYLOAD AMOUNT — solution: (MODE PAYLOAD AMOUNT)
+;
+; The puzzle knows no maker/taker semantics: §5's role table decides which
+; key/address fills each slot per leg.
+;
+;   MODE 0 — CLAIM:     PAYLOAD = preimage s. Requires sha256(s) == HASHLOCK
+;                       and the CLAIMER_PK signature. Pays AMOUNT to
+;                       CLAIM_PUZZLE_HASH.
+;   MODE 1 — REFUND:    PAYLOAD = () (ignored). Requires ASSERT_SECONDS_RELATIVE
+;                       TIMELOCK_SECONDS and the REFUNDER_PK signature. Pays
+;                       AMOUNT to REFUND_PUZZLE_HASH.
+;   MODE 2 — ARBITRATE: PAYLOAD = ((puzzle_hash amount) ...) payout vector.
+;                       Requires a non-null ARBITER_PK and the arbiter's
+;                       signature over the payout digest. MEDIATED MODE: the
+;                       arbiter can unilaterally reassign the escrow — only
+;                       name an arbiter the offer explicitly opts into.
+;
+; AMOUNT is the coin's amount, supplied by the spender's wallet. CLVM has no
+; amount opcode; every signed message commits to AMOUNT, so a wrong amount
+; invalidates the signature (fail-closed, never a wrong payout).
+;
+; Fees: none. The puzzle takes no cut (spec §13) — payouts move the full amount.
+;
+; TOOLCHAIN NOTE: defun bodies cannot see the mod's curried params (see
+; htlc_common.clsp), so the main body passes every value explicitly.
+(mod (HASHLOCK TIMELOCK_SECONDS CLAIMER_PK REFUNDER_PK
+      CLAIM_PUZZLE_HASH REFUND_PUZZLE_HASH FILL_ID ARBITER_PK
+      MODE PAYLOAD AMOUNT)
+  (include "htlc_common.clsp")
+
+  ; ARBITRATE branch — mediated mode (spec §5 trust note). Only valid when
+  ; ARBITER_PK was curried non-null; otherwise fails closed.
+  (defun arbitrate-conditions (arbiter-pk fill-id payouts amount)
+    (if arbiter-pk
+        (if (> (payout-total payouts) amount)
+            (x) ; refuse to create more than the coin holds
+            (c (list 50 arbiter-pk
+                     (sha256 "arbitrate" fill-id (payout-digest payouts "")))
+               (c (list 62 (fill-announcement fill-id "arbitrate"))
+                  (payout-conditions payouts))))
+        (x)))
+
+  (if (= MODE 0)
+      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD AMOUNT)
+      (if (= MODE 1)
+          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID AMOUNT)
+          (if (= MODE 2)
+              (arbitrate-conditions ARBITER_PK FILL_ID PAYLOAD AMOUNT)
+              (x)))) ; unknown mode -> fail
+)

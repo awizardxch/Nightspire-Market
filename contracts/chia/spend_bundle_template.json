@@ -1,0 +1,41 @@
+{
+  "_template_note": "UNSIGNED TEMPLATE \u2014 DO NOT BROADCAST. All coin ids, parent ids, puzzle reveals for the maker's wallet coin, and the aggregated_signature are placeholders. The HTLC puzzle_reveal, puzzle_hash, and solution encodings below are REAL outputs of the test vectors in run_tests.py (throwaway keys) so the shape is verifiable locally with brun. Replace every 0x00.. placeholder before real use, sign with the wallet, and validate on testnet11 first.",
+  "coin_spends": [
+    {
+      "_comment": "SPEND 1 (lock): maker's standard coin -> HTLC coin + change, atomically in one bundle (spec \u00a75c 'Change'). puzzle_reveal/solution depend on the maker's wallet puzzle \u2014 placeholders here.",
+      "coin": {
+        "parent_coin_info": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "puzzle_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "amount": 1000000
+      },
+      "puzzle_reveal": "0x00000000000000000000000000000000PLACEHOLDER_MAKER_WALLET_PUZZLE",
+      "solution": "0xPLACEHOLDER_MAKER_WALLET_SOLUTION",
+      "_expected_conditions": [
+        "CREATE_COIN puzzle_hash=0x9ef41354d86a14dadb05670c31cad4a08400e3c2f26e7159aefe670ae6154017 amount=600000   (the HTLC coin)",
+        "CREATE_COIN puzzle_hash=0x<maker change ph> amount=400000   (change, minus fee handled by wallet)"
+      ]
+    },
+    {
+      "_comment": "SPEND 2 (claim): spends the HTLC coin created above. solution = (MODE PAYLOAD AMOUNT) = (0 preimage 600000). Requires the claimer's BLS signature over the claim message (see README.md); aggregated_signature below is a zero placeholder.",
+      "coin": {
+        "parent_coin_info": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "puzzle_hash": "0x9ef41354d86a14dadb05670c31cad4a08400e3c2f26e7159aefe670ae6154017",
+        "amount": 600000
+      },
+      "puzzle_reveal": "0xff02ffff01ff02ffff01ff02ffff03ffff09ff8205ffff8080ffff01ff02ff18ffff04ff02ffff04ff05ffff04ff5fffff04ff17ffff04ff82017fffff04ff820bffffff04ff8217ffff808080808080808080ffff01ff02ffff03ffff09ff8205ffffff010180ffff01ff02ff16ffff04ff02ffff04ff0bffff04ff81bfffff04ff2fffff04ff82017fffff04ff8217ffff8080808080808080ffff01ff02ffff03ffff09ff8205ffffff010280ffff01ff02ff10ffff04ff02ffff04ff8202ffffff04ff82017fffff04ff820bffffff04ff8217ffff80808080808080ffff01ff088080ff018080ff018080ff0180ffff04ffff01ffffffff02ffff03ff05ffff01ff02ffff03ffff15ffff02ff1affff04ff02ffff04ff17ff80808080ff2f80ffff01ff0880ffff01ff04ffff04ffff0132ffff04ff05ffff04ffff0bffff0189617262697472617465ff0bffff02ff12ffff04ff02ffff04ff17ffff01ff808080808080ff80808080ffff04ffff04ffff013effff04ffff02ff14ffff04ff02ffff04ff0bffff01ff8961726269747261746580808080ff808080ffff02ff1cffff04ff02ffff04ff17ff80808080808080ff0180ffff01ff088080ff0180ff02ffff03ffff09ffff0bff5f80ff0580ffff01ff04ffff04ffff0133ffff04ff0bffff04ff81bfff80808080ffff04ffff04ffff0132ffff04ff17ffff04ffff02ff1effff04ff02ffff04ff2fffff04ffff0185636c61696dffff04ff0bffff04ff81bfff80808080808080ff80808080ffff04ffff04ffff013effff04ffff02ff14ffff04ff02ffff04ff2fffff01ff85636c61696d80808080ff808080ff80808080ffff01ff088080ff0180ffff0bff05ff0b80ff02ffff03ff05ffff01ff04ffff04ffff0133ffff04ff11ffff04ff29ff80808080ffff02ff1cffff04ff02ffff04ff0dff8080808080ff8080ff0180ffffff02ffff03ff05ffff01ff02ff12ffff04ff02ffff04ff0dffff04ffff0bff0bff11ff2980ff8080808080ffff010b80ff0180ff02ffff03ff05ffff01ff10ff29ffff02ff1affff04ff02ffff04ff0dff8080808080ff8080ff0180ffff04ffff04ffff0150ffff04ff05ff808080ffff04ffff04ffff0133ffff04ff0bffff04ff5fff80808080ffff04ffff04ffff0132ffff04ff17ffff04ffff02ff1effff04ff02ffff04ff2fffff04ffff0186726566756e64ffff04ff0bffff04ff5fff80808080808080ff80808080ffff04ffff04ffff013effff04ffff02ff14ffff04ff02ffff04ff2fffff01ff86726566756e6480808080ff808080ff8080808080ff0bffff018a4e532d48544c432d7631ff05ff0bff17ff2f80ff018080ffff04ffff01a089a517fa9b96245552a98fb3ee53afe29f0f2acbc1e735e6dacd5085ced78c90ffff04ffff018300a8c0ffff04ffff01b089d0608036649d3484b7cfe71cfbd7f13015081d6206aede1aed0a4c1ad1521233123c08f0870e9d9f605ed429d24419ffff04ffff01b0b61c4ee5d1cdd57ea615e6f3003e89afeee153d666562d0abec363d8b88c21c35e55f5622668b113e966564d04eb9fa1ffff04ffff01a0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaffff04ffff01a0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbffff04ffff01a0728123f08c6002408c24864f6936f3e4b2b642daa85049c6d59041857abef840ffff04ffff01b097b418875a833bded791b93b592d6cbff91d9a51cc1fe375e9eb44e379751a48f974ead8948542d31b066229aca6fca5ff01808080808080808080",
+      "solution": "0xff80ff986e6967687473706972652d746573742d7365637265742d31ff830927c080",
+      "_solution_meaning": {
+        "MODE": 0,
+        "PAYLOAD": "0x6e6967687473706972652d746573742d7365637265742d31 (preimage s; sha256(s) == HASHLOCK)",
+        "AMOUNT": 600000
+      },
+      "_expected_conditions": [
+        "(51 0xaa..aa 600000)                    CREATE_COIN to CLAIM_PUZZLE_HASH",
+        "(50 0x<claimer_pk> 0x<claim_msg>)       AGG_SIG_ME",
+        "(62 0x<sha256(FILL_ID || 'claim')>)     CREATE_PUZZLE_ANNOUNCEMENT"
+      ],
+      "_refund_solution_example": "0xff01ff80ff830927c080  # (1 () 600000): mode 1, empty payload"
+    }
+  ],
+  "aggregated_signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -1,0 +1,38 @@
+; htlc_noarb.clsp — Nightspire cross-chain marketplace HTLC, PURE variant.
+;
+; Byte-identical branch logic to htlc.clsp (shared via htlc_common.clsp) except:
+;   * no ARBITER_PK curried parameter, and
+;   * NO arbitrate branch at all — mode 2 fails unconditionally.
+;
+; Use this variant whenever the offer names no arbiter (the default). Pure
+; HTLC = math-only trust: no third party on any chain can move the funds;
+; only preimage-claim or timelock-refund exist.
+;
+; Curried parameters (positional, in this exact order — the first 7 are bound
+; by curry, the last 3 arrive via the solution):
+;   HASHLOCK            32 bytes   sha256(s), committed by the maker at lock time
+;   TIMELOCK_SECONDS    int        refund opens this many seconds after the lock
+;   CLAIMER_PK          48 bytes   BLS key authorised to claim after the lock
+;   REFUNDER_PK         48 bytes   BLS key authorised to refund after the timelock
+;   CLAIM_PUZZLE_HASH   32 bytes   claim pays here
+;   REFUND_PUZZLE_HASH  32 bytes   refund pays here
+;   FILL_ID             32 bytes   sha256(offerId || fillNonce) — binds the fill
+;   MODE PAYLOAD AMOUNT — solution: (MODE PAYLOAD AMOUNT)
+;
+;   MODE 0 — CLAIM:  PAYLOAD = preimage s
+;   MODE 1 — REFUND: PAYLOAD = () (ignored)
+;   any other MODE fails (no arbitrate branch exists).
+;
+; TOOLCHAIN NOTE: defun bodies cannot see the mod's curried params (see
+; htlc_common.clsp), so the main body passes every value explicitly.
+(mod (HASHLOCK TIMELOCK_SECONDS CLAIMER_PK REFUNDER_PK
+      CLAIM_PUZZLE_HASH REFUND_PUZZLE_HASH FILL_ID
+      MODE PAYLOAD AMOUNT)
+  (include "htlc_common.clsp")
+
+  (if (= MODE 0)
+      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD AMOUNT)
+      (if (= MODE 1)
+          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID AMOUNT)
+          (x))) ; no arbitrate branch exists — mode 2 (or any other) fails
+)

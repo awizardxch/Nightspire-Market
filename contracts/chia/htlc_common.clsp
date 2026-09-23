@@ -1,0 +1,93 @@
+; htlc_common.clsp — shared HTLC branch logic for the Nightspire cross-chain HTLC.
+;
+; Included (textually, at compile time) by:
+;   htlc.clsp       — arbiter-capable variant (adds the arbitrate branch)
+;   htlc_noarb.clsp — pure HTLC variant (no arbitrate branch at all)
+;
+; This file is one outer list of declarations.
+;
+; TOOLCHAIN NOTE (clvm_tools 0.4.10): a defun body can only see its OWN
+; parameters — the compiler lifts defuns out of the enclosing mod, so a
+; defun CANNOT read the mod's curried parameters (they compile to quoted
+; garbage instead of failing loudly). Every value a helper needs is
+; therefore passed explicitly by the caller. This is also good audit
+; practice: no hidden captures; every data flow is visible at the call site.
+;
+; ---------------------------------------------------------------------------
+; Signed-message construction — MUST be mirrored exactly by the signing wallet.
+; Integers encode as CLVM minimal big-endian two's complement
+; (0 -> "", 1 -> 0x01, 128 -> 0x0080, ...).
+;
+;   claim:     msg = sha256("NS-HTLC-v1" || FILL_ID || "claim"     || dest_ph || amount)
+;   refund:    msg = sha256("NS-HTLC-v1" || FILL_ID || "refund"    || dest_ph || amount)
+;   arbitrate: msg = sha256("arbitrate"  || FILL_ID || payout_digest)
+;
+;   payout_digest folds over the payout vector ((ph_1 amt_1) (ph_2 amt_2) ...):
+;     digest_0     = ""
+;     digest_{i+1} = sha256(digest_i || ph_i || amt_i)
+;
+; Consensus verifies each AGG_SIG_ME as
+;   AugSchemeMPL.verify(pk, msg || coin_id || genesis_challenge, sig)
+; where coin_id = sha256(parent_id || puzzle_hash || amount_be8) and
+; genesis_challenge is the network's GENESIS_CHALLENGE constant.
+; ---------------------------------------------------------------------------
+(
+  ; Domain-separated signature message, bound to this exact fill, branch,
+  ; destination, and amount. Shared by claim and refund.
+  (defun sig-msg (fill-id branch-tag dest-ph amount)
+    (sha256 "NS-HTLC-v1" fill-id branch-tag dest-ph amount))
+
+  ; Fill-attribution announcement message: sha256(fillId || branch-tag).
+  ; The coin announces this on every spend so off-chain watchers can
+  ; attribute the spend to its fill without trusting any single party.
+  ; (Announcements are broadcasts, not authorizations — spec §5c.)
+  (defun fill-announcement (fill-id branch-tag)
+    (sha256 fill-id branch-tag))
+
+  ; CLAIM branch. Solution payload is the preimage s.
+  ; Fails closed unless sha256(s) == hashlock; pays the full amount to
+  ; claim-ph on the claimer key's BLS signature.
+  (defun claim-conditions (hashlock claim-ph claimer-pk fill-id preimage amount)
+    (if (= (sha256 preimage) hashlock)
+        (list
+          (list 51 claim-ph amount)                                ; CREATE_COIN
+          (list 50 claimer-pk (sig-msg fill-id "claim" claim-ph amount)) ; AGG_SIG_ME
+          (list 62 (fill-announcement fill-id "claim")))           ; CREATE_PUZZLE_ANNOUNCEMENT
+        (x)))
+
+  ; REFUND branch. Opens `timelock` seconds after the coin's birth
+  ; (opcode 80 = ASSERT_SECONDS_RELATIVE, per spec §9). Pays the full
+  ; amount to refund-ph on the refunder's BLS signature.
+  (defun refund-conditions (timelock refund-ph refunder-pk fill-id amount)
+    (list
+      (list 80 timelock)                                          ; ASSERT_SECONDS_RELATIVE
+      (list 51 refund-ph amount)                                   ; CREATE_COIN
+      (list 50 refunder-pk (sig-msg fill-id "refund" refund-ph amount)) ; AGG_SIG_ME
+      (list 62 (fill-announcement fill-id "refund"))))            ; CREATE_PUZZLE_ANNOUNCEMENT
+
+  ; Fold an arbitrate payout vector into a single digest the arbiter signs.
+  ; (Kept out of the tree-hash operator on purpose: sha256tree is not
+  ; available in every CLVM toolchain, and this fold is fully deterministic.)
+  ; Recursive — kept as a real defun (macros cannot recurse).
+  (defun payout-digest (payouts acc)
+    (if payouts
+        (payout-digest (r payouts)
+                       (sha256 acc (f (f payouts)) (f (r (f payouts)))))
+        acc))
+
+  ; Sum of a payout vector ((ph amt) ...). Used to refuse over-creation.
+  (defun payout-total (payouts)
+    (if payouts
+        (+ (f (r (f payouts))) (payout-total (r payouts)))
+        0))
+
+  ; CREATE_COIN conditions for a payout vector ((ph amt) ...).
+  ; NOTE: two identical (ph, amt) pairs would be rejected by consensus as
+  ; DUPLICATE_OUTPUT. The off-chain composer (relay/worker) MUST merge
+  ; same-recipient payouts before asking the arbiter to sign.
+  (defun payout-conditions (payouts)
+    (if payouts
+        (c (list 51 (f (f payouts)) (f (r (f payouts))))
+           (payout-conditions (r payouts)))
+        ()))
+)
