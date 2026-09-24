@@ -108,14 +108,14 @@ log replay; expired advisory reservations are swept back to the pool.
 |---|---|---|
 | GET | `/v1/health`, `/v1/relay-pubkey` | liveness + pinned relay identity |
 | POST | `/v1/offers` | CrossChainOffer (§4); structural validation incl. fillMode enum, chain enum, base-unit amounts, T1 > T2 iron rule. ed25519/Solana sigs verified (INVALID → 400). Returns `offerId`, `signatureStatuses{ed25519,solana,evm,chia}`. |
-| GET | `/v1/offers` | board, each with `advisory{filled,reserved,remaining}` + `badges{mediated, fiatLeg, kycGated, directed}` + `signatureStatuses` |
-| GET | `/v1/offers/:id` | single offer + advisory + badges |
+| GET | `/v1/offers` | **Venue-contract `OfferList`** `{offers, page, limit, total}` (filters: `giveChain, wantChain, giveAsset, wantAsset, fillMode, mediated, fiatOnly`; `page, limit`). Each offer is an `OfferWithAdvisory`: signed offer + `advisory{filledAmount, reservedAmount, remainingAmount, status, updatedAt}` + `badges{isMediated, hasFiatLeg, validationStatus}` + `signatureStatuses` |
+| GET | `/v1/offers/:id` | **Venue-contract `OfferDetail`** `{offer, fills}`; fills are `FillView` (`phase`: committed/makerLocked/takerLocked/claimed; 404 → `{code: offer_not_found, message}`) |
 | POST | `/v1/offers/:id/commitments` | taker fill commitment; advisory range check; returns `fillId = sha256("offerId\|\|fillNonce")` |
 | POST | `/v1/offers/:id/acks` | advisory mirror of maker's signed commitment-ack `{fillNonce, f, reservedUntil[, makerSig]}`; atomic check-and-reserve via serial queue |
 | POST | `/v1/lock-proofs` | `{fillId, chain, txid, h, side}` advisory mirror; starts `unconfirmed` (`chainVerified: false`); both legs ⇒ fill counts as filled |
 | POST | `/v1/lock-proofs/confirm` | watcher confirmation `{fillId, side, chain, txid, blockHeight, h, watcherId}`; evidence cross-checked vs mirrored proof; both sides ⇒ `chainVerified: true` |
-| POST | `/v1/auctions` | `{offerId, startPrice, auctionWindowSec?, auctionFloorBps?, lockWindowSec?}` → `auctionId` (offer must be `solver`/`any`) |
-| GET | `/v1/auctions/:id` | ticks + acceptances + outcome + live `tickChain` verification |
+| POST | `/v1/auctions` | `{offerId, startPrice, auctionWindowSec?, auctionFloorBps?, lockWindowSec?}` → `auctionId` (offer must be `solver`/`any`). `startPrice` is a **BaseUnits integer string** (ask rate scaled by 1e6); tick prices are integer-decayed in the same representation |
+| GET | `/v1/auctions/:id` | **Venue-contract `AuctionView`** `{auctionId, offerId, status, ticks, acceptances, outcome, winnerRule}` (internal `decided` → `settled`); the tick chain stays verifiable from the served ticks + `relaySig` (see `scripts/smoke.sh` §5b); 404 → `{code: auction_not_found, message}` |
 | POST | `/v1/auctions/:id/ticks` | relay advances price, appends signed tick |
 | POST | `/v1/auctions/:id/acceptances` | `{tick, price, f, fillerAddr, sig, fillerPubkey}`; sig VERIFIED (ed25519), unsigned/invalid rejected; tick exists + price ≥ tick.price |
 | GET | `/v1/auctions/:id/outcome` | deterministic winner, **ed25519-signed** outcome record |

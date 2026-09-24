@@ -354,6 +354,11 @@ class OfferStore {
     return [...this.offers.values()].map((s) => this.offerView(s));
   }
 
+  /** Raw offer states for the OpenAPI view adapters (src/venue_views.js). */
+  allStates() {
+    return [...this.offers.values()];
+  }
+
   offerView(state) {
     const reserved = this.reservedAmount(state);
     const remaining = BigInt(state.offer.giveAmount) - state.filledAmount - reserved;
@@ -378,7 +383,9 @@ class OfferStore {
       if (!this.offers.has(payload.offer.offerId)) this.addOffer(payload.offer);
     } else if (type === 'commitment.received') {
       const state = this.getState(payload.offerId);
-      if (state) {
+      // Dedup: recordCommitment() already recorded it live; record() replays
+      // the event. fillId is unique per commitment (boot replay starts empty).
+      if (state && !state.commitments.some((c) => c.fillId === payload.commitment.fillId)) {
         state.commitments.push(payload.commitment);
         if (!state.fills.has(payload.commitment.fillId))
           state.fills.set(payload.commitment.fillId, {

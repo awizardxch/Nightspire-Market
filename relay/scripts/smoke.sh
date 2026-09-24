@@ -184,8 +184,9 @@ fi
 pass "bad confirmations rejected (h mismatch, txid mismatch, unknown fillId)"
 
 # --- 4. open auction ---
+# startPrice is a BaseUnits integer string: ask rate scaled by 1e6 (venue contract).
 AUC_RESP=$(curl -sf -X POST "$BASE/v1/auctions" -H 'Content-Type: application/json' \
-  -d '{"offerId":"smoke-offer-1","startPrice":"0.000300","auctionWindowSec":60,"auctionFloorBps":500,"lockWindowSec":120}')
+  -d '{"offerId":"smoke-offer-1","startPrice":"1500000","auctionWindowSec":60,"auctionFloorBps":500,"lockWindowSec":120}')
 AUCTION_ID=$(echo "$AUC_RESP" | jget "d['auctionId']")
 [ -n "$AUCTION_ID" ] || fail "no auctionId"
 pass "auction opened: $AUCTION_ID"
@@ -200,17 +201,50 @@ P3=$(echo "$TICK3" | jget "d['tick']['price']")
 SIG1=$(echo "$TICK1" | jget "d['tick']['relaySig']")
 [ -n "$SIG1" ] || fail "tick missing relaySig"
 python3 - "$P1" "$P2" "$P3" <<'EOF' || fail "tick prices not decaying"
-import sys
-p1, p2, p3 = map(float, sys.argv[1:4])
-assert p1 > p2 > p3, f"not decaying: {p1} {p2} {p3}"
-assert abs(p1 - 0.00029975) < 1e-12, f"tick1 price wrong: {p1}"
+import re, sys
+p1, p2, p3 = sys.argv[1:4]
+# venue contract: tick prices are BaseUnits integer strings (ask rate scaled by 1e6)
+assert all(re.fullmatch(r"\d+", p) for p in (p1, p2, p3)), f"tick price not a base-unit integer: {p1} {p2} {p3}"
+i1, i2, i3 = map(int, (p1, p2, p3))
+assert i1 > i2 > i3, f"not decaying: {p1} {p2} {p3}"
+# startPrice 1500000, floor 5% -> 1425000, window 60: tick n = 1500000 - 75000*n/60
+assert (p1, p2, p3) == ("1498750", "1497500", "1496250"), f"tick prices wrong: {p1} {p2} {p3}"
 EOF
-pass "3 ticks: price decaying 0.000300 → $P3, relay-signed, hash-chained"
+pass "3 ticks: integer prices decaying 1498750 → 1496250, relay-signed, hash-chained"
 
-# --- 5b. tick chain verifies live (hash recompute + linkage + relaySigs) ---
-TICKCHAIN_OK=$(curl -sf "$BASE/v1/auctions/$AUCTION_ID" | jget "d['tickChain']['ok']")
-[ "$TICKCHAIN_OK" = "True" ] || fail "tickChain did not verify"
-pass "tick chain verified live: hashes + linkage + relay signatures"
+# --- 5b. tick chain verifies live from the served AuctionView ---
+# The venue contract serves the verifiable tick chain (ticks + relaySig) on
+# GET /v1/auctions/:id; anyone recomputes tickHash, linkage, and relaySigs
+# client-side ("recomputable by anyone", spec §8/§12).
+python3 - "$BASE" "$AUCTION_ID" "$PUBKEY" <<'EOF'
+import json, sys, hashlib, urllib.request
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+base, auction_id, pubkey_der_hex = sys.argv[1], sys.argv[2], sys.argv[3]
+view = json.load(urllib.request.urlopen(f"{base}/v1/auctions/{auction_id}"))
+assert view["auctionId"] == auction_id, "auctionId mismatch"
+assert view["offerId"], "offerId missing"
+assert view["status"] in ("open", "exclusive", "settled", "reauctioned"), f"bad status {view['status']}"
+assert view["winnerRule"] == "sort (tick ASC, sha256(fillerAddr) ASC)", "winnerRule mismatch"
+assert view["outcome"] is None, "outcome must be null before decision"
+ticks = view["ticks"]
+assert len(ticks) == 3, f"expected 3 ticks, got {len(ticks)}"
+pub = load_der_public_key(bytes.fromhex(pubkey_der_hex))
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+prev = "GENESIS"
+for t in ticks:
+    assert t["auctionId"] == auction_id, "tick auctionId mismatch"
+    core = {"auctionId": t["auctionId"], "tick": t["tick"], "price": t["price"],
+            "prevTickHash": t["prevTickHash"], "ts": t["ts"]}
+    assert hashlib.sha256(canon(core)).hexdigest() == t["tickHash"], f"tick {t['tick']}: tickHash mismatch"
+    assert t["prevTickHash"] == prev, f"tick {t['tick']}: linkage broken"
+    signed = {**core, "tickHash": t["tickHash"]}
+    pub.verify(bytes.fromhex(t["relaySig"]), canon(signed))
+    prev = t["tickHash"]
+print(f"auction view ok: {len(ticks)} ticks, chain + relaySigs recomputed client-side")
+EOF
+[ $? -eq 0 ] || fail "tickChain did not verify from served AuctionView"
+pass "tick chain verified live from AuctionView: hashes + linkage + relay signatures"
 
 # --- 6. signed acceptances: A@tick3, B@tick1, C@tick1 ---
 # node mints 3 filler keypairs and signs each acceptance core
@@ -245,7 +279,7 @@ done
 # tampered acceptance (price changed after signing) must be rejected
 TAMPERED=$(echo "$FILLERS_JSON" | python3 -c "
 import json,sys
-a = json.load(sys.stdin)[0]; a['price'] = '0.000300'
+a = json.load(sys.stdin)[0]; a['price'] = '1498751'
 print(json.dumps(a))")
 if curl -sf -X POST "$BASE/v1/auctions/$AUCTION_ID/acceptances" -H 'Content-Type: application/json' -d "$TAMPERED" >/dev/null 2>&1; then
   fail "tampered acceptance was accepted"

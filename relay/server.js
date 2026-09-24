@@ -49,6 +49,8 @@ const { OfferStore, validateOffer } = require('./src/store');
 const { AuctionBook } = require('./src/auctions');
 const { verifyOfferSignatures, UNVERIFIED_REASONS } = require('./src/offer_sigs');
 const { buildCheckpoint } = require('./src/checkpoints');
+// OpenAPI (venue-api/openapi.yaml) view adapters for the venue UI read endpoints.
+const venue = require('./src/venue_views');
 
 const PORT = Number(process.env.PORT || 8787);
 // DATA_DIR override lets tests run against a scratch dir without touching live data.
@@ -121,6 +123,15 @@ function send(res, code, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
+}
+
+/**
+ * Venue-contract error shape (venue-api/openapi.yaml Error schema):
+ * {code, message} with a machine-readable code. Used on the UI-facing
+ * read endpoints; the internal POST endpoints keep their {error, ...} shape.
+ */
+function sendError(res, httpCode, code, message) {
+  return send(res, httpCode, { code, message });
 }
 
 function readBody(req) {
@@ -197,13 +208,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === 'GET' && p === '/v1/offers') {
       store.sweepAllExpired();
-      return send(res, 200, { offers: store.boardView() });
+      // OpenAPI OfferList contract (venue-api/openapi.yaml): {offers, page, limit, total}.
+      // Filters: giveChain, wantChain, giveAsset, wantAsset, fillMode, mediated, fiatOnly.
+      const q = Object.fromEntries(url.searchParams.entries());
+      return send(res, 200, venue.offerList(store, store.allStates(), q));
     }
     let m = p.match(/^\/v1\/offers\/([^/]+)$/);
     if (method === 'GET' && m) {
       const state = store.getState(m[1]);
-      if (!state) return send(res, 404, { error: 'offer not found' });
-      return send(res, 200, store.offerView(state));
+      if (!state) return sendError(res, 404, 'offer_not_found', `no offer with offerId ${m[1]}`);
+      // OpenAPI OfferDetail contract: {offer, fills}.
+      return send(res, 200, venue.offerDetail(store, state));
     }
     m = p.match(/^\/v1\/offers\/([^/]+)\/commitments$/);
     if (method === 'POST' && m) {
@@ -316,8 +331,11 @@ const server = http.createServer(async (req, res) => {
     m = p.match(/^\/v1\/auctions\/([^/]+)$/);
     if (method === 'GET' && m) {
       const a = auctions.get(m[1]);
-      if (!a) return send(res, 404, { error: 'auction not found' });
-      return send(res, 200, { auction: a, tickChain: auctions.verifyTickChain(a) });
+      if (!a) return sendError(res, 404, 'auction_not_found', `no auction with auctionId ${m[1]}`);
+      // OpenAPI AuctionView contract: {auctionId, offerId, status, ticks,
+      // acceptances, outcome, winnerRule}. The tick chain stays verifiable
+      // from ticks + relaySig on each tick (use scripts/verify-chain.js).
+      return send(res, 200, venue.auctionView(a));
     }
     m = p.match(/^\/v1\/auctions\/([^/]+)\/ticks$/);
     if (method === 'POST' && m) {

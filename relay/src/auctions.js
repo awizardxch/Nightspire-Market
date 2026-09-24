@@ -24,6 +24,13 @@
  * The signature binds the payout address (fillerAddr) to the pubkey holder —
  * the §8 slashing evidence ("the winner's non-repudiable commitment").
  *
+ * Price representation (venue-api/openapi.yaml BaseUnits): tick prices are
+ * INTEGER strings — the ask rate in want-side base units per one give-side
+ * base unit, scaled by 1e6 (decimal fixed-point). POST /v1/auctions takes
+ * startPrice in the same representation; all decay math is integer math, so
+ * the hash-chained tick records natively satisfy the venue contract's
+ * ^\d+$ pattern and the chain stays verifiable from the served AuctionView.
+ *
  * Deterministic winner rule (spec §8, recomputable by anyone):
  *   sort valid acceptances by (tick ASC, sha256(fillerAddr) ASC); first wins.
  * "sha256(fillerAddr)": sha256 over the UTF-8 bytes of the fillerAddr hex
@@ -40,6 +47,17 @@ const { RelaySigner } = require('./signer');
 
 function sha256hex(s) {
   return crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+}
+
+/**
+ * Legacy tolerance: snapshots written before integer-scaled prices may carry
+ * decimal startPrice/floorPrice strings (e.g. "0.0003"). Scale them to
+ * BaseUnits so an old state.json can never crash priceAt() on boot.
+ */
+function toBaseUnits(v) {
+  const s = String(v);
+  if (/^\d+$/.test(s)) return BigInt(s);
+  return BigInt(Math.round(Number(s) * 1e6));
 }
 
 function sortKey(a) {
@@ -89,8 +107,9 @@ class AuctionBook {
 
   open(offerId, params) {
     const errors = [];
-    const startPrice = Number(params.startPrice);
-    if (!Number.isFinite(startPrice) || startPrice <= 0) errors.push('startPrice: positive number (string ok)');
+    // Venue contract BaseUnits: integer string, ask rate scaled by 1e6.
+    if (typeof params.startPrice !== 'string' || !/^\d+$/.test(params.startPrice) || BigInt(params.startPrice) <= 0n)
+      errors.push('startPrice: positive base-unit integer string (ask rate scaled by 1e6)');
     const windowSec = params.auctionWindowSec === undefined ? 300 : Number(params.auctionWindowSec);
     if (!Number.isInteger(windowSec) || windowSec <= 0) errors.push('auctionWindowSec: positive integer');
     const floorBps = params.auctionFloorBps === undefined ? 50 : Number(params.auctionFloorBps);
@@ -101,12 +120,13 @@ class AuctionBook {
     if (errors.length) return { ok: false, code: 400, error: 'invalid auction params', details: errors };
 
     const auctionId = 'auc_' + crypto.randomBytes(8).toString('hex');
-    const floorPrice = startPrice * (1 - floorBps / 10000);
+    const start = BigInt(params.startPrice);
+    const floorPrice = (start * BigInt(10000 - floorBps)) / 10000n; // integer decay to the floor
     const auction = {
       auctionId,
       offerId,
-      startPrice: String(params.startPrice),
-      floorPrice: String(floorPrice),
+      startPrice: params.startPrice,
+      floorPrice: floorPrice.toString(),
       auctionWindowSec: windowSec,
       auctionFloorBps: floorBps,
       lockWindowSec,
@@ -123,12 +143,13 @@ class AuctionBook {
   }
 
   priceAt(auction, tick) {
-    // Linear decay from startPrice to floorPrice over auctionWindowSec ticks.
-    const n = Math.min(tick, auction.auctionWindowSec);
-    const start = Number(auction.startPrice);
-    const floor = Number(auction.floorPrice);
-    const price = start - (start - floor) * (n / auction.auctionWindowSec);
-    return price;
+    // Linear integer decay from startPrice to floorPrice over auctionWindowSec
+    // ticks, in BaseUnits (scaled by 1e6). Returns a BigInt.
+    const n = BigInt(Math.min(tick, auction.auctionWindowSec));
+    const start = toBaseUnits(auction.startPrice);
+    const floor = toBaseUnits(auction.floorPrice);
+    const window = BigInt(auction.auctionWindowSec);
+    return start - ((start - floor) * n) / window;
   }
 
   tick(auctionId) {
@@ -139,7 +160,7 @@ class AuctionBook {
     const rec = {
       auctionId,
       tick: n,
-      price: String(this.priceAt(a, n)),
+      price: this.priceAt(a, n).toString(), // BaseUnits integer string (scaled by 1e6)
       prevTickHash: a.prevTickHash,
       ts: Math.floor(Date.now() / 1000),
     };
@@ -158,7 +179,10 @@ class AuctionBook {
     if (!body || typeof body !== 'object') errors.push('body must be an object');
     else {
       if (!Number.isInteger(body.tick) || body.tick <= 0) errors.push('tick: positive integer');
-      if (!(Number(body.price) > 0)) errors.push('price: positive number (string ok)');
+      // Venue contract BaseUnits: acceptances quote the published tick price,
+      // an integer string (ask rate scaled by 1e6) — same representation as the tick.
+      if (typeof body.price !== 'string' || !/^\d+$/.test(body.price) || BigInt(body.price) <= 0n)
+        errors.push('price: positive base-unit integer string (ask rate scaled by 1e6, as published on the tick)');
       if (typeof body.f !== 'string' || !/^\d+$/.test(body.f)) errors.push('f: base-unit integer string');
       if (typeof body.fillerAddr !== 'string' || !body.fillerAddr) errors.push('fillerAddr: non-empty string');
       // Spec §8 + §12: acceptances are SIGNED — posting requires a valid signature.
@@ -303,7 +327,11 @@ class AuctionBook {
       }
     } else if (type === 'auction.acceptance') {
       const a = this.auctions.get(payload.acceptance.auctionId);
-      if (a) a.acceptances.push(payload.acceptance);
+      // Dedup: accept() already recorded it live; record() replays the event.
+      // sig is unique per acceptance (boot replay starts from empty state).
+      if (a && !a.acceptances.some((x) => x.sig === payload.acceptance.sig)) {
+        a.acceptances.push(payload.acceptance);
+      }
     } else if (type === 'auction.outcome') {
       const a = this.auctions.get(payload.outcome.auctionId);
       if (a) {
