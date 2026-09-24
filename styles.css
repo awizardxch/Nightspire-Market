@@ -126,6 +126,14 @@ table.data { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-
 table.data th, table.data td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(0,217,255,0.15); }
 table.data th { color: var(--text-muted); font-weight: normal; font-size: 0.75rem; text-transform: uppercase; }
 table.data tr.winner-row td { background: rgba(74, 222, 128, 0.08); }
+.table-wrap { overflow-x: auto; }
+table.data.offers th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+table.data.offers th[data-sort]:hover { color: var(--accent); }
+table.data.offers th.sorted { color: var(--accent); }
+.sort-arrow { font-size: 0.7rem; }
+table.data tr.offer-row { cursor: pointer; }
+table.data tr.offer-row:hover td { background: rgba(0,217,255,0.06); }
+.progress.mini { width: 90px; display: inline-block; vertical-align: middle; margin: 0 8px 0 0; }
 
 .mono { font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
 .muted { color: var(--text-muted); }

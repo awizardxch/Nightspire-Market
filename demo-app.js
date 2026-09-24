@@ -161,7 +161,7 @@ async function render() {
 window.addEventListener('hashchange', render);
 
 /* ---------- board ---------- */
-const boardState = { page: 1, limit: 12, giveChain: '', wantChain: '', fillMode: '', mediated: '', fiatOnly: false, q: '' };
+const boardState = { page: 1, limit: 12, giveChain: '', wantChain: '', fillMode: '', mediated: '', fiatOnly: false, q: '', sortKey: '', sortDir: 1 };
 
 function filterForm() {
   const s = boardState;
@@ -187,25 +187,62 @@ function filterForm() {
   </div></div>`;
 }
 
-function offerCard(o) {
+function filledPct(o) {
+  const g = BigInt(o.giveAmount || '0');
+  const f = BigInt(((o.advisory || {}).filledAmount) || '0');
+  return g > 0n ? Number((f * 10000n) / g) / 100 : 0;
+}
+
+const SORT_KEYS = {
+  offerId:   { label: 'Offer',      val: (o) => o.offerId || '' },
+  give:      { label: 'Give',       val: (o) => BigInt(o.giveAmount || '0') },
+  giveChain: { label: 'Give chain', val: (o) => o.giveChain || '' },
+  want:      { label: 'Want',       val: (o) => BigInt(o.wantAmount || '0') },
+  wantChain: { label: 'Want chain', val: (o) => o.wantChain || '' },
+  fillMode:  { label: 'Mode',       val: (o) => o.fillMode || '' },
+  status:    { label: 'Status',     val: (o) => ({ open: 0, filling: 1, filled: 2, expired: 3, cancelled: 4 }[((o.advisory || {}).status)] ?? 9) },
+  filledPct: { label: 'Filled',     val: filledPct },
+  expiry:    { label: 'Expiry',     val: (o) => Number(o.expiry || 0) },
+};
+function cmpVal(a, b) {
+  if (typeof a === 'bigint' && typeof b === 'bigint') return a < b ? -1 : a > b ? 1 : 0;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b));
+}
+function sortOffers(offers) {
+  const s = boardState;
+  if (!s.sortKey || !SORT_KEYS[s.sortKey]) return offers;
+  const get = SORT_KEYS[s.sortKey].val;
+  return [...offers].sort((x, y) => cmpVal(get(x), get(y)) * s.sortDir);
+}
+
+function sortTh(key) {
+  const s = boardState;
+  const active = s.sortKey === key;
+  const arrow = active ? (s.sortDir === 1 ? ' ▲' : ' ▼') : '';
+  return `<th data-sort="${key}" class="${active ? 'sorted' : ''}" title="Sort by ${SORT_KEYS[key].label}">${SORT_KEYS[key].label}<span class="sort-arrow">${arrow}</span></th>`;
+}
+
+function offerRow(o) {
   const a = o.advisory || {};
-  const give = BigInt(o.giveAmount || '0');
-  const filled = BigInt(a.filledAmount || '0');
-  const pct = give > 0n ? Number((filled * 100n) / give) : 0;
-  return `<div class="glow-card offer-card" data-offer="${esc(o.offerId)}">
-    <h3><span class="mono">${esc(shortHash(o.offerId, 8))}</span></h3>
-    <div class="pair">${fmtInt(o.giveAmount)} ${esc(o.giveAsset)} <span class="muted">@ ${chainName(o.giveChain)}</span>
-      <span class="arrow">→</span> ${fmtInt(o.wantAmount)} ${esc(o.wantAsset)} <span class="muted">@ ${chainName(o.wantChain)}</span></div>
-    <div>${statusBadge(a.status)}${offerBadges(o)}</div>
-    <div class="progress"><div style="width:${Math.min(100, pct)}%"></div></div>
-    <div class="muted">filled ${fmtInt(a.filledAmount || '0')} · remaining ${fmtInt(a.remainingAmount || '0')}
-      · min fill ${fmtInt(o.minFillAmount)}</div>
-  </div>`;
+  const pct = filledPct(o);
+  return `<tr class="offer-row" data-offer="${esc(o.offerId)}">
+    <td class="mono">${esc(shortHash(o.offerId, 8))}</td>
+    <td class="mono">${fmtInt(o.giveAmount)} ${esc(o.giveAsset)}</td>
+    <td>${esc(o.giveChain || '—')}</td>
+    <td class="mono">${fmtInt(o.wantAmount)} ${esc(o.wantAsset)}</td>
+    <td>${esc(o.wantChain || '—')}</td>
+    <td>${esc(o.fillMode || '—')}</td>
+    <td>${statusBadge(a.status)}</td>
+    <td><div class="progress mini"><div style="width:${Math.min(100, pct)}%"></div></div><span class="muted">${pct.toFixed(1)}%</span></td>
+    <td>${offerBadges(o) || '<span class="muted">—</span>'}</td>
+    <td class="muted">${fmtTs(o.expiry)}</td>
+  </tr>`;
 }
 
 async function renderBoard() {
   const s = boardState;
-  const params = new URLSearchParams({ page: s.page, limit: s.limit });
+  const params = new URLSearchParams({ page: 1, limit: 1000 });
   if (s.giveChain) params.set('giveChain', s.giveChain);
   if (s.wantChain) params.set('wantChain', s.wantChain);
   if (s.fillMode) params.set('fillMode', s.fillMode);
@@ -214,20 +251,28 @@ async function renderBoard() {
   const list = await api('/v1/offers?' + params.toString());
   let offers = list.offers || [];
   if (s.q) offers = offers.filter((o) => o.offerId.toLowerCase().includes(s.q.toLowerCase()));
+  offers = sortOffers(offers);
 
-  const totalPages = Math.max(1, Math.ceil((list.total || 0) / (list.limit || s.limit)));
-  app.innerHTML = `<h2>Offer board <span class="muted">(${list.total || 0} offers)</span></h2>
+  const totalPages = Math.max(1, Math.ceil(offers.length / s.limit));
+  if (s.page > totalPages) s.page = totalPages;
+  const pageOffers = offers.slice((s.page - 1) * s.limit, s.page * s.limit);
+  const cols = ['offerId', 'give', 'giveChain', 'want', 'wantChain', 'fillMode', 'status', 'filledPct', 'expiry'];
+
+  app.innerHTML = `<h2>Offer board <span class="muted">(${offers.length} offers)</span></h2>
     ${filterForm()}
-    <div class="offer-grid">${offers.map(offerCard).join('') || '<p class="muted">No offers match.</p>'}</div>
+    <div class="glow-card table-wrap"><table class="data offers">
+      <thead><tr>${cols.map(sortTh).join('')}<th>Flags</th></tr></thead>
+      <tbody>${pageOffers.map(offerRow).join('') || '<tr><td colspan="10" class="muted">No offers match.</td></tr>'}</tbody>
+    </table></div>
     <div class="pager">
       <button class="glow-btn" id="pgPrev"${s.page <= 1 ? ' disabled' : ''}>← Prev</button>
-      <span class="muted">page ${list.page} of ${totalPages}</span>
+      <span class="muted">page ${s.page} of ${totalPages}</span>
       <button class="glow-btn" id="pgNext"${s.page >= totalPages ? ' disabled' : ''}>Next →</button>
       <button class="glow-btn" id="bRefresh">Refresh</button>
     </div>
     <div class="note blue">Advisory data only — the relay mirrors reservations and lock
     proofs; <strong>chain state is truth</strong>. Verify every signature locally before
-    locking funds.</div>`;
+    locking funds. Click a column header to sort; click a row for the offer detail.</div>`;
 
   document.getElementById('fApply').onclick = () => {
     s.giveChain = document.getElementById('fGive').value;
@@ -242,7 +287,15 @@ async function renderBoard() {
   document.getElementById('pgPrev').onclick = () => { s.page--; render(); };
   document.getElementById('pgNext').onclick = () => { s.page++; render(); };
   document.getElementById('bRefresh').onclick = () => render();
-  app.querySelectorAll('.offer-card').forEach((el) => {
+  app.querySelectorAll('th[data-sort]').forEach((th) => {
+    th.onclick = () => {
+      const k = th.dataset.sort;
+      if (s.sortKey === k) s.sortDir *= -1;
+      else { s.sortKey = k; s.sortDir = 1; }
+      render();
+    };
+  });
+  app.querySelectorAll('.offer-row').forEach((el) => {
     el.onclick = () => { location.hash = '#/offer/' + encodeURIComponent(el.dataset.offer); };
   });
 }
