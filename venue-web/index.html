@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightspire Market — Cross-Chain Venue</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <div>
+      <h1 class="glow-text">Nightspire Market</h1>
+      <p class="tagline">Cross-chain HTLC venue · read-only board</p>
+    </div>
+  </div>
+  <div class="relay-box">
+    <label for="relayUrl">Relay</label>
+    <input id="relayUrl" type="text" spellcheck="false" placeholder="http://localhost:8787">
+    <button id="relayGo" class="glow-btn">Connect</button>
+    <span id="relayStatus" class="status-pill unknown">not connected</span>
+  </div>
+</header>
+
+<nav class="crumbs">
+  <a href="#/" data-nav>Offer board</a>
+  <span id="crumbExtra"></span>
+</nav>
+
+<main id="app">
+  <noscript><p class="error">Nightspire Market needs JavaScript to read the relay.</p></noscript>
+</main>
+
+<footer>
+  <p>
+    Nightspire Market is a <strong>read-only</strong> venue board. It never holds keys, never signs,
+    and never submits transactions. To fill an offer, copy the offer terms and sign in your own
+    wallet — see <a href="#/about">how fills work</a>.
+  </p>
+  <p class="muted">Reads <code>venue-api/openapi.yaml</code> endpoints only:
+    <code>GET /v1/offers</code>, <code>GET /v1/offers/{offerId}</code>,
+    <code>GET /v1/auctions/{auctionId}</code>.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Pinned Python dependencies for the relay test suite (relay/test/).
+# Install: pip install -r requirements.txt
+# - coincurve: independent libsecp256k1 signer used by test/eip712.test.js
+#   and scripts/make_eip712_offer.js (called by scripts/smoke.sh) to
+#   produce signatures the relay must verify. CI installs this file.
+# - jsonschema (+pyyaml for the YAML loader): used by
+#   test/contract_venue_api.py to validate relay responses against
+#   venue-api/openapi.yaml. Versions match venue-api/requirements.txt.
+coincurve==21.0.0
+jsonschema==4.10.3
+pyyaml==6.0.1

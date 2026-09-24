@@ -39,7 +39,8 @@ jobs:
       - name: Install Python deps
         run: |
           pip install -r contracts/chia/requirements.txt \
-                      -r venue-api/requirements.txt
+                      -r venue-api/requirements.txt \
+                      -r relay/test/requirements.txt
 
       - name: EVM — forge build + test
         working-directory: contracts/evm
@@ -67,6 +68,14 @@ jobs:
       - name: Relay — EIP-712 signature tests
         working-directory: relay
         run: npm run test:eip712
+
+      - name: Relay — venue view adapter tests
+        working-directory: relay
+        run: npm run test:venue_views
+
+      - name: Relay — venue API contract test
+        working-directory: relay
+        run: npm run test:contract
 
       - name: Worker — demo + recovery drills
         working-directory: worker

@@ -121,7 +121,14 @@ function record(type, payload) {
 // ---- HTTP plumbing ----
 function send(res, code, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(code, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+    // The static venue UI (venue-web/) is served from a different origin;
+    // it only issues GETs (simple requests, no preflight). The relay holds
+    // no secrets — its key only signs — so a wildcard origin is fine here.
+    'Access-Control-Allow-Origin': '*',
+  });
   res.end(body);
 }
 
