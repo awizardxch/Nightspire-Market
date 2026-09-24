@@ -19,15 +19,17 @@
  *   - VERIFIED filler acceptance signatures (ed25519 over canonical
  *     {auctionId,tick,price,f,fillerAddr}); unsigned/badly-signed bids rejected
  *   - offer signature verification: ed25519 + Solana-style (base58 makerAddr)
- *     verified in stdlib; EIP-712/Chia-BLS honestly marked UNVERIFIED with
- *     reasons (agents verify locally, spec §12)
+ *     verified in stdlib; EIP-712 verified via vendored @noble
+ *     keccak256+secp256k1-recovery (Nightspire convention v1, src/eip712.js);
+ *     Chia BLS honestly marked UNVERIFIED with reason (agents verify
+ *     locally, spec §12)
  *   - signed Merkle checkpoints over the log (src/checkpoints.js)
  *   - lock-proof chainVerified plumbing: mirrored proofs start unconfirmed;
  *     watcher confirmations (txid+blockHeight+hash evidence) promote them
  *   - advisory filled/reserved/remaining accounting
  * STUBBED (honest markers in code + README):
- *   - EIP-712 / Chia BLS offer signature verification → UNVERIFIED (needs
- *     keccak+secp256k1-recovery / BLS12-381 — not in Node stdlib)
+ *   - Chia BLS offer signature verification → UNVERIFIED (BLS12-381 not
+ *     vendored; the offer format carries no BLS pubkey — needs a spec change)
  *   - chain watcher (src/watcher.js) — interface only, throws; the
  *     /v1/lock-proofs/confirm endpoint is its local stand-in
  *   - public checkpoint ANCHORING (Nostr/on-chain) — checkpoints are produced
@@ -170,8 +172,9 @@ const server = http.createServer(async (req, res) => {
       if (errors.length) return send(res, 400, { error: 'invalid offer', details: errors });
       const offerId = body.offerId || crypto.randomUUID();
       if (store.has(offerId)) return send(res, 409, { error: 'offerId already exists' });
-      // Signature verification: ed25519 + Solana-style verified in stdlib;
-      // EIP-712 / Chia BLS honestly marked UNVERIFIED (agents verify locally, spec §12).
+      // Signature verification: ed25519 + Solana-style in stdlib, EIP-712 via
+      // vendored noble (src/eip712.js); Chia BLS honestly UNVERIFIED
+      // (agents verify locally, spec §12).
       const sigCheck = verifyOfferSignatures({ ...body, offerId });
       if (!sigCheck.ok)
         return send(res, 400, { error: 'invalid offer signature', details: sigCheck.statuses });

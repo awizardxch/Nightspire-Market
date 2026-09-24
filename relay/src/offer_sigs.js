@@ -17,13 +17,21 @@
  *      base58 Solana address (which IS the 32-byte ed25519 pubkey).
  *      Pure-JS base58 decode below.
  *
+ * What the relay CAN verify with vendored audited code (no npm at runtime):
+ *  - signatures.evm (EIP-712): keccak256 + secp256k1 ecrecover via vendored
+ *    @noble/hashes@1.8.0 + @noble/curves@1.9.7 (relay/vendor/noble).
+ *    Verifies against the NIGHTSPIRE RELAY EIP-712 CONVENTION v1
+ *    (src/eip712.js): EIP712Domain(name="Nightspire Marketplace", version="1",
+ *    giveChain) + CrossChainOffer(bytes32 termsHash), termsHash =
+ *    keccak256(signBytes); ecrecover(digest, sig) must equal makerAddr.
+ *    Only for EVM giveChains — other chains stay UNVERIFIED (wrong slot).
+ *
  * What stays honestly UNVERIFIED, with reasons (spec §12: agents MUST verify
  * these locally — "agents verify signatures locally"; the relay check is
  * edge anti-spam, never the trust root):
- *  - signatures.evm (EIP-712): needs keccak256 + secp256k1 public-key
- *    recovery — neither exists in Node's stdlib, and hand-rolling them in
- *    unaudited JS would be worse than an honest marker.
- *  - signatures.chia (BLS): needs BLS12-381 — not in stdlib either.
+ *  - signatures.chia (BLS): needs BLS12-381 — not vendored; and the spec's
+ *    offer format carries no BLS pubkey (makerAddr is not necessarily a BLS
+ *    key), so relay-side verification is infeasible without a spec change.
  *
  * verifyOfferSignatures(offer) -> { ok, statuses }
  *   statuses: { ed25519, solana, evm, chia } each one of
@@ -33,6 +41,7 @@
  */
 const crypto = require('node:crypto');
 const { canonicalize } = require('./canonical');
+const { verifyOfferEip712 } = require('./eip712');
 
 const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -97,8 +106,7 @@ function verifyEd25519(bytes, sigHex, spkiDerHex) {
 }
 
 const UNVERIFIED_REASONS = {
-  evm: 'EIP-712 needs keccak256 + secp256k1 key recovery (not in Node stdlib) — agents MUST verify locally (spec §12)',
-  chia: 'BLS12-381 not in Node stdlib — agents MUST verify locally (spec §12)',
+  chia: 'BLS12-381 not vendored, and the offer format carries no BLS pubkey (makerAddr is not necessarily a BLS key) — agents MUST verify locally (spec §12)',
 };
 
 function verifyOfferSignatures(offer) {
@@ -135,11 +143,17 @@ function verifyOfferSignatures(offer) {
     if (statuses.solana === 'INVALID') ok = false;
   }
 
-  for (const scheme of ['evm', 'chia']) {
-    if (sigs[scheme] != null) {
-      statuses[scheme] = 'UNVERIFIED';
-      reasons[scheme] = UNVERIFIED_REASONS[scheme];
-    }
+  if (sigs.evm != null) {
+    // EIP-712 via vendored noble (src/eip712.js, Nightspire convention v1).
+    const res = verifyOfferEip712(offer);
+    statuses.evm = res.status;
+    if (res.reason) reasons.evm = res.reason;
+    if (res.status === 'INVALID') ok = false;
+  }
+
+  if (sigs.chia != null) {
+    statuses.chia = 'UNVERIFIED';
+    reasons.chia = UNVERIFIED_REASONS.chia;
   }
 
   return { ok, statuses, reasons };

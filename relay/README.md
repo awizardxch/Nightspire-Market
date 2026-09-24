@@ -78,9 +78,11 @@ log replay; expired advisory reservations are swept back to the pool.
   shutdown; boot replays the verified log. Survives `kill -9` (tested).
 
 **STUBBED (honest markers in code + responses):**
-- EIP-712 / Chia BLS offer signatures → `UNVERIFIED` with reasons (need
-  keccak256+secp256k1-recovery / BLS12-381 — not in Node stdlib). Agents MUST
-  verify these locally (spec §12).
+- Chia BLS offer signatures → `UNVERIFIED` with reason (BLS12-381 not
+  vendored, and the offer format carries no BLS pubkey — agents MUST verify
+  locally, spec §12). EIP-712 offer signatures **are** verified via vendored
+  `@noble/hashes@1.8.0` + `@noble/curves@1.9.7` (Nightspire relay EIP-712
+  convention v1, `src/eip712.js`).
 - Chain watcher (`src/watcher.js`) — interface only (`pollLeg`, `onLockSeen`,
   `onClaimSeen`, `submitClaim`, `watchFill`); every method throws. Never called.
   `POST /v1/lock-proofs/confirm` is its local stand-in: production watchers
@@ -222,9 +224,11 @@ full log chain, then kills the server. Must exit 0.
    string; `fillerPubkey` is ed25519 SPKI DER hex. The signature binds the
    payout address to the pubkey holder — the §8 slashing evidence.
 9. **Offer signing bytes**: `UTF-8(canonicalize(offer minus "signatures"))`.
-   EIP-712 and Chia BLS stay UNVERIFIED (reasons in `src/offer_sigs.js`) —
-   agents MUST verify those locally (spec §12); the relay check is edge
-   anti-spam, never the trust root.
+   EIP-712 is verified via vendored noble under the Nightspire relay EIP-712
+   convention v1 (`relay/src/eip712.js`, test vectors in
+   `relay/test/eip712.test.js`); Chia BLS stays UNVERIFIED (reason in
+   `src/offer_sigs.js`) — agents MUST verify it locally (spec §12); the relay
+   check is edge anti-spam, never the trust root.
 
 ## Threat-model notes (spec §12)
 

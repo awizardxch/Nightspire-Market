@@ -138,8 +138,8 @@ cross-chain-marketplace/
   exclusive-claimer window. Cross-VM SHA-256 test vector included.
 - **Chia** (`contracts/chia`): HTLC-style CLVM puzzles with hashlock/timelock
   escrow, refund paths, arbiter split; every branch proven via `brun`.
-- **Relay** (`relay/`): signed offers (ed25519 + Solana-style verified;
-  EIP-712/Chia-BLS honestly UNVERIFIED — agents verify locally), signed
+- **Relay** (`relay/`): signed offers (ed25519 + Solana-style + EIP-712
+  verified; Chia-BLS honestly UNVERIFIED — agents verify locally), signed
   acceptance tickets (invalid rejected), hash-chained Dutch ticks
   (live-verified), lock-proof `chainVerified` plumbing with watcher evidence,
   signed Merkle checkpoints, append-only hash-chained log. Advisory only —

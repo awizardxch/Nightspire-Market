@@ -64,6 +64,10 @@ jobs:
         working-directory: relay
         run: npm run smoke
 
+      - name: Relay — EIP-712 signature tests
+        working-directory: relay
+        run: npm run test:eip712
+
       - name: Worker — demo + recovery drills
         working-directory: worker
         run: |

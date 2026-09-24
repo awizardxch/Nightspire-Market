@@ -45,8 +45,9 @@ PUBKEY=$(curl -sf "$BASE/v1/health" | jget "d['relay']['publicKeyDerHex']")
 NOW=$(date +%s)
 EXPIRY=$((NOW + 86400))
 
-# --- helper: build a signed offer via node (ed25519 + solana-style + evm stub) ---
+# --- helper: build a signed offer via node (ed25519 or solana-style) ---
 # usage: make_offer <offerId> <makerAddrKind:ed25519|solana> ; prints the offer JSON on stdout
+# (EIP-712 offers have their own builder: scripts/make_eip712_offer.js)
 make_offer() {
   OFFER_ID="$1" KIND="$2" node -e "
 const crypto = require('node:crypto');
@@ -70,7 +71,6 @@ const bytes = offerSignBytes(offer);
 const sig = crypto.sign(null, bytes, privateKey).toString('hex');
 if (kind === 'solana') offer.signatures.solana = sig;
 else offer.signatures.ed25519 = { pubkey: publicKey.export({format:'der',type:'spki'}).toString('hex'), sig };
-offer.signatures.evm = '0xdeadbeef'; // EIP-712 shape only — honestly UNVERIFIED (agents verify locally)
 console.log(JSON.stringify(offer));
 "
 }
@@ -80,8 +80,37 @@ OFFER=$(EXPIRY=$EXPIRY make_offer smoke-offer-1 ed25519)
 RESP=$(curl -sf -X POST "$BASE/v1/offers" -H 'Content-Type: application/json' -d "$OFFER")
 echo "$RESP" | jget "d['offerId']" | grep -q '^smoke-offer-1$' || fail "offerId mismatch"
 echo "$RESP" | jget "d['signatureStatuses']['ed25519']" | grep -q '^VERIFIED$' || fail "ed25519 offer sig must be VERIFIED"
-echo "$RESP" | jget "d['signatureStatuses']['evm']" | grep -q '^UNVERIFIED$' || fail "evm sig must stay honestly UNVERIFIED"
-pass "offer posted: ed25519 sig VERIFIED, evm honestly UNVERIFIED (agents verify locally)"
+pass "offer posted: ed25519 sig VERIFIED"
+
+# --- 1b2. genuine EIP-712 offer (Nightspire convention v1, libsecp256k1-signed) ---
+TMPD_EVM="$(mktemp -d)"
+EVM_OFFER=$(TMPD="$TMPD_EVM" EXPIRY=$EXPIRY OFFER_ID=smoke-offer-evm NONCE=smoke-nonce-evm node "$RELAY_DIR/scripts/make_eip712_offer.js")
+RESP_EVM=$(curl -sf -X POST "$BASE/v1/offers" -H 'Content-Type: application/json' -d "$EVM_OFFER")
+echo "$RESP_EVM" | jget "d['signatureStatuses']['evm']" | grep -q '^VERIFIED$' || fail "EIP-712 offer sig must be VERIFIED"
+pass "EIP-712 offer (convention v1, independent libsecp256k1 signer): sig VERIFIED"
+
+# --- 1b3. wrong-key EIP-712 sig must be rejected (INVALID -> 400) ---
+BAD_EVM=$(echo "$EVM_OFFER" | python3 -c "
+import json,sys
+o=json.load(sys.stdin)
+o['offerId']='smoke-offer-evm-bad'
+o['signatures']['evm']='0x'+'ab'*64+'1b'  # well-formed 65 bytes, wrong key
+print(json.dumps(o))")
+if curl -sf -X POST "$BASE/v1/offers" -H 'Content-Type: application/json' -d "$BAD_EVM" >/dev/null 2>&1; then
+  fail "offer with wrong-key EIP-712 sig was accepted"
+fi
+pass "offer with INVALID EIP-712 sig rejected (400)"
+
+# --- 1b4. evm sig on a non-EVM chain: accepted, honestly UNVERIFIED (wrong slot) ---
+WRONGSLOT=$(echo "$EVM_OFFER" | python3 -c "
+import json,sys
+o=json.load(sys.stdin)
+o['offerId']='smoke-offer-evm-wrongslot'
+o['giveChain']='solana'
+print(json.dumps(o))")
+RESP_WS=$(curl -sf -X POST "$BASE/v1/offers" -H 'Content-Type: application/json' -d "$WRONGSLOT")
+echo "$RESP_WS" | jget "d['signatureStatuses']['evm']" | grep -q '^UNVERIFIED$' || fail "evm sig on solana giveChain must be UNVERIFIED"
+pass "evm sig on non-EVM giveChain: accepted, honestly UNVERIFIED"
 
 # --- 1b. post a Solana-style offer (makerAddr = base58 pubkey, ed25519 sig) ---
 OFFER_SOL=$(EXPIRY=$EXPIRY make_offer smoke-offer-sol solana)
