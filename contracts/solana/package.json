@@ -16,9 +16,14 @@
   },
   "name": "xcm-htlc-tests",
   "private": true,
+  "version": "0.1.0",
   "scripts": {
     "test": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
     "test:bankrun": "ts-mocha -p ./tsconfig.json -t 1000000 tests/bankrun_e2e.ts"
   },
-  "version": "0.1.0"
+  "overrides": {
+    "anchor-bankrun": {
+      "@coral-xyz/anchor": "0.31.1"
+    }
+  }
 }
