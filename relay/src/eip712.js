@@ -59,6 +59,21 @@ const EVM_CHAINS = new Set([
   'ethereum-sepolia',
 ]);
 
+/**
+ * Numeric EVM chain IDs for the EIP-712 v2 domain.
+ * Sources: ethereum-lists/chains for Ethereum/Base; docs.robinhood.com/chain
+ * + on-chain eth_chainId for Robinhood (4663 mainnet, 46630 testnet —
+ * also pinned in Spellbook's evm.py CHAINS).
+ */
+const EVM_CHAIN_IDS = {
+  'ethereum': 1,
+  'ethereum-sepolia': 11155111,
+  'base': 8453,
+  'base-sepolia': 84532,
+  'robinhood': 4663,
+  'robinhood-testnet': 46630,
+};
+
 function keccak256(bytes) {
   return Buffer.from(keccak_256(Buffer.from(bytes)));
 }
@@ -176,6 +191,56 @@ function offerDomain(offer) {
   return { name: DOMAIN_NAME, version: DOMAIN_VERSION, giveChain: offer.giveChain };
 }
 
+// ---------------------------------------------------------------------------
+// NIGHTSPIRE RELAY EIP-712 CONVENTION v2
+// Adds numeric chainId to the domain so EVM wallets/agents that require
+// EIP-712 chainId (e.g. Spellbook's message_sign typed_data) can sign.
+// v1 (no chainId) is superseded; the relay verifies v2 only.
+// ---------------------------------------------------------------------------
+//   EIP712Domain(string name,string version,uint256 chainId,string giveChain)
+//     name      = "Nightspire Marketplace"
+//     version   = "2"
+//     chainId   = EVM_CHAIN_IDS[offer.giveChain]
+//     giveChain = offer.giveChain (our chain namespace, kept for clarity)
+//   CrossChainOffer(bytes32 termsHash) / CancelOffer(bytes32 cancelHash)
+//   (message types unchanged from v1)
+
+const DOMAIN_VERSION_V2 = '2';
+const DOMAIN_TYPES_V2 = [
+  { name: 'name', type: 'string' },
+  { name: 'version', type: 'string' },
+  { name: 'chainId', type: 'uint256' },
+  { name: 'giveChain', type: 'string' },
+];
+
+function offerDomainV2(offer) {
+  const chainId = EVM_CHAIN_IDS[offer.giveChain];
+  if (chainId == null) throw new Error(`no EIP-712 chainId for giveChain '${offer.giveChain}'`);
+  return { name: DOMAIN_NAME, version: DOMAIN_VERSION_V2, chainId, giveChain: offer.giveChain };
+}
+
+/** EIP-712 signing digest for an offer under convention v2. */
+function offerEip712DigestV2(offer) {
+  return eip712Digest({
+    domain: offerDomainV2(offer),
+    domainTypes: DOMAIN_TYPES_V2,
+    primaryType: 'CrossChainOffer',
+    message: { termsHash: offerTermsHash(offer) },
+    types: OFFER_TYPES,
+  });
+}
+
+/** EIP-712 signing digest for cancelling an offer under convention v2. */
+function offerCancelEip712DigestV2(offer, cancelledAt) {
+  return eip712Digest({
+    domain: offerDomainV2(offer),
+    domainTypes: DOMAIN_TYPES_V2,
+    primaryType: 'CancelOffer',
+    message: { cancelHash: offerCancelTermsHash(offer.offerId, offer.makerAddr, cancelledAt) },
+    types: { ...OFFER_TYPES, ...CANCEL_TYPES },
+  });
+}
+
 function offerTermsHash(offer) {
   return keccak256(offerTermsBytes(offer));
 }
@@ -220,7 +285,7 @@ function offerCancelEip712Digest(offer, cancelledAt) {
 }
 
 /**
- * Verify a `signatures.evm` cancel signature under convention v1.
+ * Verify a `signatures.evm` cancel signature under convention v2.
  * Returns { status: 'VERIFIED'|'INVALID'|'UNVERIFIED'|'absent', reason?, recovered? }.
  */
 function verifyOfferCancelEip712(offer, cancelledAt, sigHex) {
@@ -234,7 +299,7 @@ function verifyOfferCancelEip712(offer, cancelledAt, sigHex) {
   if (!/^0x[0-9a-f]{40}$/.test(maker))
     return { status: 'INVALID', reason: 'makerAddr is not an EVM address' };
   try {
-    const digest = offerCancelEip712Digest(offer, cancelledAt);
+    const digest = offerCancelEip712DigestV2(offer, cancelledAt);
     const recovered = recoverAddress(digest, sigHex);
     if (recovered.toLowerCase() === maker) return { status: 'VERIFIED', recovered };
     return { status: 'INVALID', reason: `recovered ${recovered} != makerAddr ${maker}`, recovered };
@@ -278,7 +343,7 @@ function recoverAddress(digest, sigHex) {
 }
 
 /**
- * Verify an offer's `signatures.evm` under convention v1.
+ * Verify an offer's `signatures.evm` under convention v2.
  * Returns { status: 'VERIFIED'|'INVALID'|'UNVERIFIED'|'absent', reason?, recovered? }.
  */
 function verifyOfferEip712(offer) {
@@ -293,7 +358,7 @@ function verifyOfferEip712(offer) {
   if (!/^0x[0-9a-f]{40}$/.test(maker))
     return { status: 'INVALID', reason: 'makerAddr is not an EVM address — cannot match an ecrecover result' };
   try {
-    const digest = offerEip712Digest(offer);
+    const digest = offerEip712DigestV2(offer);
     const recovered = recoverAddress(digest, sigHex);
     if (recovered.toLowerCase() === maker) return { status: 'VERIFIED', recovered };
     return { status: 'INVALID', reason: `recovered ${recovered} != makerAddr ${maker}`, recovered };
@@ -312,6 +377,11 @@ module.exports = {
   eip712Digest,
   offerEip712Digest,
   offerCancelEip712Digest,
+  offerEip712DigestV2,
+  offerDomainV2,
+  offerCancelEip712DigestV2,
+  EVM_CHAIN_IDS,
+  DOMAIN_TYPES_V2,
   offerCancelTermsHash,
   verifyOfferCancelEip712,
   CANCEL_TYPES,

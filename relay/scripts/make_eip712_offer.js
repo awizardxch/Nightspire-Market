@@ -2,7 +2,7 @@
 'use strict';
 /**
  * scripts/make_eip712_offer.js — build a genuinely EIP-712-signed offer for
- * the smoke test (Nightspire relay EIP-712 convention v1, see src/eip712.js).
+ * the smoke test (Nightspire relay EIP-712 convention v2, see src/eip712.js).
  *
  * Flow: openssl keygen -> node derives EVM address + EIP-712 digest ->
  * libsecp256k1 (coincurve, INDEPENDENT signer) raw-signs the 32-byte digest ->
@@ -17,7 +17,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const RELAY_DIR = path.resolve(__dirname, '..');
-const { offerEip712Digest, recoverAddress, keccak256hex } = require(path.join(RELAY_DIR, 'src', 'eip712'));
+const { offerEip712DigestV2, recoverAddress, keccak256hex } = require(path.join(RELAY_DIR, 'src', 'eip712'));
 
 const tmpd = process.env.TMPD;
 const expiry = Number(process.env.EXPIRY);
@@ -69,7 +69,7 @@ const offer = {
   signatures: {},
 };
 
-const digest = offerEip712Digest(offer);
+const digest = offerEip712DigestV2(offer);
 const digPath = path.join(tmpd, 'digest.bin');
 const sigPath = path.join(tmpd, 'sig.der');
 fs.writeFileSync(digPath, digest);
