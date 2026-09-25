@@ -47,6 +47,30 @@ function esc(s) {
 function fmtInt(s) {
   try { return BigInt(s).toLocaleString('en-US'); } catch (e) { return String(s); }
 }
+
+/* Human-readable token amounts: relay amounts are base-unit strings.
+ * Native-asset decimals per chain (EVM 18, Solana 9, Chia 12). Unknown
+ * chain/asset pairs fall back to raw fmtInt — never guess decimals. */
+const NATIVE_DECIMALS = {
+  'robinhood': 18, 'robinhood-testnet': 18,
+  'base': 18, 'base-sepolia': 18,
+  'ethereum': 18, 'ethereum-sepolia': 18,
+  'solana': 9, 'solana-devnet': 9, 'solana-testnet': 9,
+  'chia': 12, 'chia-testnet': 12,
+};
+function fmtAmount(s, asset, chain) {
+  const dec = asset === 'native' ? NATIVE_DECIMALS[chain] : undefined;
+  if (dec === undefined) return fmtInt(s);
+  try {
+    const v = BigInt(s);
+    const base = 10n ** BigInt(dec);
+    const ip = v / base;
+    const fp = v % base;
+    if (fp === 0n) return ip.toLocaleString('en-US');
+    const frac = fp.toString().padStart(dec, '0').replace(/0+$/, '');
+    return ip.toLocaleString('en-US') + '.' + frac;
+  } catch (e) { return String(s); }
+}
 function shortHash(s, n = 12) {
   s = String(s);
   return s.length > n + 8 ? `${s.slice(0, n)}…${s.slice(-6)}` : s;
@@ -173,12 +197,12 @@ function offerCard(o) {
   const pct = give > 0n ? Number((filled * 100n) / give) : 0;
   return `<div class="glow-card offer-card" data-offer="${esc(o.offerId)}">
     <h3><span class="mono">${esc(shortHash(o.offerId, 8))}</span></h3>
-    <div class="pair">${fmtInt(o.giveAmount)} ${esc(o.giveAsset)} <span class="muted">@ ${chainName(o.giveChain)}</span>
-      <span class="arrow">→</span> ${fmtInt(o.wantAmount)} ${esc(o.wantAsset)} <span class="muted">@ ${chainName(o.wantChain)}</span></div>
+    <div class="pair">${fmtAmount(o.giveAmount, o.giveAsset, o.giveChain)} ${esc(o.giveAsset)} <span class="muted">@ ${chainName(o.giveChain)}</span>
+      <span class="arrow">→</span> ${fmtAmount(o.wantAmount, o.wantAsset, o.wantChain)} ${esc(o.wantAsset)} <span class="muted">@ ${chainName(o.wantChain)}</span></div>
     <div>${statusBadge(a.status)}${offerBadges(o)}</div>
     <div class="progress"><div style="width:${Math.min(100, pct)}%"></div></div>
-    <div class="muted">filled ${fmtInt(a.filledAmount || '0')} · remaining ${fmtInt(a.remainingAmount || '0')}
-      · min fill ${fmtInt(o.minFillAmount)}</div>
+    <div class="muted">filled ${fmtAmount(a.filledAmount || '0', o.giveAsset, o.giveChain)} · remaining ${fmtAmount(a.remainingAmount || '0', o.giveAsset, o.giveChain)}
+      · min fill ${fmtAmount(o.minFillAmount, o.giveAsset, o.giveChain)}</div>
   </div>`;
 }
 
@@ -237,7 +261,7 @@ async function renderOfferDetail(offerId) {
     .map((k) => `<span class="muted">${k}</span> ${sigBadge(sigs[k])}`).join(' · ');
   const fillRows = (fills || []).map((f) => `<tr>
       <td class="mono">${esc(shortHash(f.fillId))}</td>
-      <td>${fmtInt(f.f)}</td>
+      <td>${fmtAmount(f.f, o.giveAsset, o.giveChain)}</td>
       <td>${phaseBadge(f.phase)}</td>
       <td class="mono">${f.hashlock ? esc(shortHash(f.hashlock)) : '—'}</td>
       <td>${f.lockProofs && f.lockProofs.makerLock ? `<span class="ok-text">✓</span> <span class="mono">${esc(shortHash(f.lockProofs.makerLock.txid))}</span>${f.lockProofs.makerLock.blockHeight != null ? ` @${f.lockProofs.makerLock.blockHeight}` : ''}` : '<span class="muted">—</span>'}</td>
@@ -247,13 +271,13 @@ async function renderOfferDetail(offerId) {
   app.innerHTML = `
   <h2>Offer <span class="mono">${esc(o.offerId)}</span></h2>
   <div class="glow-card">
-    <div class="pair">${fmtInt(o.giveAmount)} ${esc(o.giveAsset)} <span class="muted">@ ${chainName(o.giveChain)}</span>
-      <span class="arrow">→</span> ${fmtInt(o.wantAmount)} ${esc(o.wantAsset)} <span class="muted">@ ${chainName(o.wantChain)}</span></div>
+    <div class="pair">${fmtAmount(o.giveAmount, o.giveAsset, o.giveChain)} ${esc(o.giveAsset)} <span class="muted">@ ${chainName(o.giveChain)}</span>
+      <span class="arrow">→</span> ${fmtAmount(o.wantAmount, o.wantAsset, o.wantChain)} ${esc(o.wantAsset)} <span class="muted">@ ${chainName(o.wantChain)}</span></div>
     <div>${statusBadge(a.status)}${offerBadges(o)}</div>
     <div class="progress"><div style="width:${o.giveAmount && BigInt(o.giveAmount) > 0n ? Math.min(100, Number((BigInt(a.filledAmount || '0') * 100n) / BigInt(o.giveAmount))) : 0}%"></div></div>
     <dl class="kv">
-      <dt>Filled / reserved / remaining</dt><dd class="mono">${fmtInt(a.filledAmount || '0')} / ${fmtInt(a.reservedAmount || '0')} / ${fmtInt(a.remainingAmount || '0')} base units</dd>
-      <dt>Min fill</dt><dd class="mono">${fmtInt(o.minFillAmount)} base units</dd>
+      <dt>Filled / reserved / remaining</dt><dd class="mono">${fmtAmount(a.filledAmount || '0', o.giveAsset, o.giveChain)} / ${fmtAmount(a.reservedAmount || '0', o.giveAsset, o.giveChain)} / ${fmtAmount(a.remainingAmount || '0', o.giveAsset, o.giveChain)} ${esc(o.giveAsset)}</dd>
+      <dt>Min fill</dt><dd class="mono">${fmtAmount(o.minFillAmount, o.giveAsset, o.giveChain)} ${esc(o.giveAsset)}</dd>
       <dt>Fill mode</dt><dd>${esc(o.fillMode)}</dd>
       <dt>Maker (give chain)</dt><dd class="mono">${esc(o.makerAddr)}</dd>
       <dt>Maker receives (want chain)</dt><dd class="mono">${esc(o.makerRecvAddr)}</dd>
