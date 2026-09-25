@@ -18,6 +18,7 @@ What it does NOT prove (needs testnet11 + full node):
 """
 import hashlib
 import re
+import shutil
 import subprocess
 import sys
 from io import BytesIO
@@ -33,7 +34,15 @@ from clvm_tools.curry import curry
 from chia_rs import Program
 
 HERE = Path(__file__).resolve().parent
-BRUN = str(Path.home() / ".local" / "bin" / "brun")
+# `brun` ships as a console script with clvm_tools. Prefer PATH (CI installs
+# pip packages system-wide) and fall back to the pip --user location so
+# existing local setups keep working.
+BRUN = shutil.which("brun") or str(Path.home() / ".local" / "bin" / "brun")
+if not Path(BRUN).exists():
+    sys.exit(
+        f"error: `brun` not found (looked on PATH and at {BRUN}). "
+        "Install it with: pip install -r contracts/chia/requirements.txt"
+    )
 
 # ---------------------------------------------------------------- test vectors
 # Throwaway keys — generated fresh, never persisted, never funded.
