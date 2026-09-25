@@ -43,12 +43,19 @@ tooling via `POST /v1/offers` (see `relay/scripts/smoke.sh` for the format).
 ## 2. Venue web on Vercel
 
 1. Vercel → **Add New** → **Project** → Import `awizardxch/Nightspire-Market`.
-2. **Root Directory**: `venue-web`. (No build command, no output directory —
-   it's static.)
-3. Deploy.
-4. Open the site, paste the Railway relay URL into the **Relay** box at the
-   top, hit **Connect**. The URL is saved in the browser's localStorage.
-   Share pre-pointed links as `https://<vercel-url>/?relay=https://<railway-url>`.
+2. **Root Directory**: `venue-web`.
+3. **Build Command**: `node build.mjs`. (No output directory — it's static;
+   the build step just bakes the relay URL into `config.js`.)
+4. **Environment Variables**: add `NIGHTSPIRE_RELAY_URL` =
+   `https://<your-railway-url>`. The site then loads already pointed at the
+   relay — visitors never paste a URL.
+5. Deploy and open the site: the Relay box is pre-filled and the board loads.
+
+Without the env var the page falls back to `http://localhost:8787`
+(local dev). Explicit overrides still win in this order:
+`?relay=` query param → saved browser choice → `NIGHTSPIRE_RELAY_URL` →
+localhost. To share a pre-pointed link regardless:
+`https://<vercel-url>/?relay=https://<railway-url>`.
 
 ## Notes
 
