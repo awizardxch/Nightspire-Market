@@ -47,15 +47,11 @@ tooling via `POST /v1/offers` (see `relay/scripts/smoke.sh` for the format).
 3. **Build Command**: `node build.mjs`. (No output directory — it's static;
    the build step just bakes the relay URL into `config.js`.)
 4. **Environment Variables**: add `NIGHTSPIRE_RELAY_URL` =
-   `https://<your-railway-url>`. The site then loads already pointed at the
-   relay — visitors never paste a URL.
-5. Deploy and open the site: the Relay box is pre-filled and the board loads.
-
-Without the env var the page falls back to `http://localhost:8787`
-(local dev). Explicit overrides still win in this order:
-`?relay=` query param → saved browser choice → `NIGHTSPIRE_RELAY_URL` →
-localhost. To share a pre-pointed link regardless:
-`https://<vercel-url>/?relay=https://<railway-url>`.
+   `https://<your-railway-url>`. The site is fixed to this relay at build
+   time — there is no relay input or switching in the UI. (Fork the repo
+   to point a deployment somewhere else.)
+5. Deploy and open the site: the board loads straight from the relay, with
+   only a small connection-status pill in the header.
 
 ## Notes
 

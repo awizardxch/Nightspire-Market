@@ -15,8 +15,10 @@ const app = document.getElementById('app');
 let relayBase = DEFAULT_RELAY;
 try {
   const q = new URLSearchParams(location.search).get('relay');
-  const saved = localStorage.getItem('nightspire.relay');
-  relayBase = (q || saved || DEFAULT_RELAY).replace(/\/+$/, '');
+  relayBase = (q || DEFAULT_RELAY).replace(/\/+$/, '');
+  // The relay switcher UI is gone: one deployment, one relay.
+  // Drop any stale saved choice from when the box existed.
+  localStorage.removeItem('nightspire.relay');
 } catch (e) { /* storage unavailable — use default */ }
 
 /* ---------- HTTP (GET only) ---------- */
@@ -481,11 +483,5 @@ async function renderAbout() {
 }
 
 /* ---------- boot ---------- */
-document.getElementById('relayUrl').value = relayBase;
-document.getElementById('relayGo').onclick = () => {
-  relayBase = document.getElementById('relayUrl').value.trim().replace(/\/+$/, '') || DEFAULT_RELAY;
-  try { localStorage.setItem('nightspire.relay', relayBase); } catch (e) { /* ignore */ }
-  checkRelay().then(render);
-};
 checkRelay();
 render();
