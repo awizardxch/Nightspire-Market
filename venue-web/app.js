@@ -56,7 +56,7 @@ const NATIVE_DECIMALS = {
   'base': 18, 'base-sepolia': 18,
   'ethereum': 18, 'ethereum-sepolia': 18,
   'solana': 9, 'solana-devnet': 9, 'solana-testnet': 9,
-  'chia': 12, 'chia-testnet': 12,
+  'chia': 12, 'chia-testnet': 12, 'chia-testnet11': 12,
 };
 function fmtAmount(s, asset, chain) {
   const dec = asset === 'native' ? NATIVE_DECIMALS[chain] : undefined;
