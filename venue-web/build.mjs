@@ -5,8 +5,10 @@
 //   node build.mjs
 // and add the env var NIGHTSPIRE_RELAY_URL = https://<your-railway-url>.
 //
-// If the env var is unset, config.js leaves the default alone (localhost),
-// which keeps local dev (`npx serve .`) working unchanged.
+// If the env var is unset, config.js records null and the board shows a
+// "relay URL is not configured" error instead of silently hitting localhost.
+// Local dev: run `NIGHTSPIRE_RELAY_URL=http://localhost:8787 node build.mjs`,
+// or open the page with ?relay=http://localhost:8787 (debug override).
 import { writeFileSync } from 'node:fs';
 
 const url = (process.env.NIGHTSPIRE_RELAY_URL || '').trim().replace(/\/+$/, '');
@@ -20,5 +22,5 @@ writeFileSync(
 console.log(
   url
     ? `config.js: relay default -> ${url}`
-    : 'config.js: NIGHTSPIRE_RELAY_URL not set — keeping localhost default',
+    : 'config.js: NIGHTSPIRE_RELAY_URL not set — board will report "not configured"',
 );
