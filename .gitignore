@@ -3,15 +3,17 @@ out/
 cache/
 
 # Rust / Solana build outputs — but keep the two program binaries and the
-# hand-maintained IDL that the bankrun tests load directly as fixtures
-target/
-!target/deploy/
-target/deploy/*
-!target/deploy/xcm_htlc.so
-!target/deploy/spl_token.so
-!target/idl/
-target/idl/*
-!target/idl/xcm_htlc.json
+# hand-maintained IDL that the bankrun tests load directly as fixtures.
+# (Same caveat as contracts/solana/.gitignore: `target/` + `!target/deploy/`
+# can never match — git won't descend into an excluded directory.)
+**/target/*
+!**/target/deploy/
+!**/target/idl/
+**/target/deploy/*
+!**/target/deploy/xcm_htlc.so
+!**/target/deploy/spl_token.so
+**/target/idl/*
+!**/target/idl/xcm_htlc.json
 
 # Node
 node_modules/

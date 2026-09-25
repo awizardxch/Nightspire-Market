@@ -1,11 +1,14 @@
 # Build outputs — but keep the two program binaries and the hand-maintained
-# IDL that the bankrun tests load directly as fixtures
-target/
+# IDL that the bankrun tests load directly as fixtures.
+# NOTE: `target/` + `!target/deploy/` does NOT work — git never descends into
+# an excluded directory, so the negations can never match. Exclude the
+# *contents* instead, then re-include each level explicitly.
+target/*
 !target/deploy/
+!target/idl/
 target/deploy/*
 !target/deploy/xcm_htlc.so
 !target/deploy/spl_token.so
-!target/idl/
 target/idl/*
 !target/idl/xcm_htlc.json
 node_modules/

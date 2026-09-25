@@ -1,0 +1,498 @@
+{
+  "accounts": [
+    {
+      "discriminator": [
+        105,
+        105,
+        224,
+        172,
+        57,
+        173,
+        219,
+        26
+      ],
+      "name": "HtlcEscrow"
+    }
+  ],
+  "address": "64GMKYfXd99kVEcNm3DyJPSJB6HhKTBMR5hcncpf5zEx",
+  "errors": [
+    {
+      "code": 6000,
+      "msg": "Escrow amount must be greater than zero",
+      "name": "InvalidAmount"
+    },
+    {
+      "code": 6001,
+      "msg": "Timelock must be in the future at initialization",
+      "name": "TimelockInPast"
+    },
+    {
+      "code": 6002,
+      "msg": "Receiver/refund address must not be the default pubkey",
+      "name": "InvalidAddress"
+    },
+    {
+      "code": 6003,
+      "msg": "Preimage does not match the hashlock",
+      "name": "InvalidPreimage"
+    },
+    {
+      "code": 6004,
+      "msg": "Timelock has expired; the claim window is closed",
+      "name": "TimelockExpired"
+    },
+    {
+      "code": 6005,
+      "msg": "Timelock has not expired yet",
+      "name": "TimelockNotExpired"
+    },
+    {
+      "code": 6006,
+      "msg": "Only the exclusive claimer may withdraw during the exclusive window",
+      "name": "NotExclusiveClaimer"
+    },
+    {
+      "code": 6007,
+      "msg": "Receiver account does not match the escrow's receiver",
+      "name": "ReceiverMismatch"
+    },
+    {
+      "code": 6008,
+      "msg": "Refund account does not match the escrow's refund_addr",
+      "name": "RefundAddrMismatch"
+    },
+    {
+      "code": 6009,
+      "msg": "No arbiter was set at lock time; the arbitrate branch is disabled",
+      "name": "ArbiterNotSet"
+    },
+    {
+      "code": 6010,
+      "msg": "Arbiter signature verification failed",
+      "name": "InvalidArbiterSignature"
+    },
+    {
+      "code": 6011,
+      "msg": "Recipients and amounts must be non-empty and the same length",
+      "name": "PayoutLengthMismatch"
+    },
+    {
+      "code": 6012,
+      "msg": "Payout amounts must sum to exactly the escrowed amount",
+      "name": "PayoutTotalMismatch"
+    },
+    {
+      "code": 6013,
+      "msg": "Not enough recipient accounts were provided",
+      "name": "MissingRecipientAccounts"
+    },
+    {
+      "code": 6014,
+      "msg": "Recipient account does not match the declared recipient",
+      "name": "RecipientAccountMismatch"
+    }
+  ],
+  "instructions": [
+    {
+      "accounts": [
+        {
+          "name": "funder",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  116,
+                  108,
+                  99
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "fill_id"
+              },
+              {
+                "kind": "arg",
+                "path": "hashlock"
+              }
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "receiver",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "refundAddr",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "funderToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "escrowToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "systemProgram",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "tokenProgram",
+          "optional": true,
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "args": [
+        {
+          "name": "receiver",
+          "type": "pubkey"
+        },
+        {
+          "name": "refundAddr",
+          "type": "pubkey"
+        },
+        {
+          "name": "hashlock",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "timelock",
+          "type": "i64"
+        },
+        {
+          "name": "mint",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "fillId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "arbiter",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "exclusiveClaimer",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "exclusiveUntil",
+          "type": "i64"
+        }
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "name": "initialize"
+    },
+    {
+      "accounts": [
+        {
+          "name": "claimer",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "receiver",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "escrowToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "receiverToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "systemProgram",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "tokenProgram",
+          "optional": true,
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "args": [
+        {
+          "name": "preimage",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "name": "withdraw"
+    },
+    {
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "refundAddr",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "escrowToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "refundToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "systemProgram",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "tokenProgram",
+          "optional": true,
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "name": "refund"
+    },
+    {
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "refundAddr",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "name": "escrowToken",
+          "optional": true,
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "systemProgram",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "tokenProgram",
+          "optional": true,
+          "signer": false,
+          "writable": false
+        },
+        {
+          "name": "instructionsSysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "args": [
+        {
+          "name": "recipients",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "amounts",
+          "type": {
+            "vec": "u64"
+          }
+        }
+      ],
+      "discriminator": [
+        105,
+        91,
+        110,
+        150,
+        216,
+        11,
+        142,
+        142
+      ],
+      "name": "arbitrate"
+    }
+  ],
+  "metadata": {
+    "name": "xcm_htlc",
+    "spec": "0.1.0",
+    "version": "0.1.0"
+  },
+  "types": [
+    {
+      "name": "HtlcEscrow",
+      "type": {
+        "fields": [
+          {
+            "name": "receiver",
+            "type": "pubkey"
+          },
+          {
+            "name": "refundAddr",
+            "type": "pubkey"
+          },
+          {
+            "name": "hashlock",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "timelock",
+            "type": "i64"
+          },
+          {
+            "name": "mint",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "fillId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "arbiter",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "exclusiveClaimer",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "exclusiveUntil",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ],
+        "kind": "struct"
+      }
+    }
+  ]
+}
