@@ -12,7 +12,7 @@
  *  2. keccak-256 vectors from pycryptodome (independent C implementation).
  *  3. Offer round-trip signed by OpenSSL (independent ECDSA signer over the
  *     raw 32-byte digest; recovery id found by trial). Validates our
- *     Nightspire convention v1 schema end-to-end.
+ *     Nightspire convention v2 schema end-to-end.
  */
 
 const assert = require('node:assert');
@@ -22,7 +22,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const eip712 = require('../src/eip712');
-const { keccak256hex, eip712Digest, offerEip712Digest, recoverAddress, verifyOfferEip712 } = eip712;
+const { keccak256hex, eip712Digest, offerEip712DigestV2, recoverAddress, verifyOfferEip712 } = eip712;
 
 let passed = 0;
 function check(name, fn) {
@@ -197,7 +197,7 @@ check('offer round-trip: libsecp256k1-signed EIP-712 offer verifies', () => {
     const makerAddr = '0x' + keccak256hex(uncompressed.subarray(1)).slice(-40);
 
     const offer = makeOffer(makerAddr);
-    const digest = offerEip712Digest(offer);
+    const digest = offerEip712DigestV2(offer);
     assert.strictEqual(digest.length, 32);
 
     const der = coincurveSignDigestRaw(keyPem, digest);
@@ -233,7 +233,7 @@ check('tampered terms => INVALID', () => {
     const keyPem = path.join(dir, 'key.pem');
     execFileSync('openssl', ['ecparam', '-name', 'secp256k1', '-genkey', '-noout', '-out', keyPem]);
     const offer = makeOffer('0x0000000000000000000000000000000000000000');
-    const digest = offerEip712Digest(offer);
+    const digest = offerEip712DigestV2(offer);
     const { r, s } = parseDerSig(coincurveSignDigestRaw(keyPem, digest));
     for (const v of [27, 28]) {
       const cand = '0x' + Buffer.concat([r, s, Buffer.from([v])]).toString('hex');
@@ -285,10 +285,10 @@ check('absent evm sig => absent', () => {
 });
 
 check('offer digest is bound to giveChain (replay across chains fails)', () => {
-  const a = offerEip712Digest(makeOffer('0x1111111111111111111111111111111111111111'));
+  const a = offerEip712DigestV2(makeOffer('0x1111111111111111111111111111111111111111'));
   const bOffer = makeOffer('0x1111111111111111111111111111111111111111');
   bOffer.giveChain = 'robinhood-testnet';
-  const b = offerEip712Digest(bOffer);
+  const b = offerEip712DigestV2(bOffer);
   assert.ok(!a.equals(b), 'digests must differ across giveChains');
 });
 
