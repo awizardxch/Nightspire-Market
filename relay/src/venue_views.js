@@ -48,6 +48,7 @@ function nowIso() {
  */
 function offerStatusFor(store, state, nowSec) {
   const offer = state.offer;
+  if (state.cancelled) return 'cancelled';
   const giveAmount = BigInt(offer.giveAmount);
   if (state.filledAmount >= giveAmount) return 'filled';
   if (typeof offer.expiry === 'number' && nowSec > offer.expiry) return 'expired';
@@ -123,7 +124,10 @@ function offerMatchesFilters(offer, q) {
  * states: array of internal offer states; q: parsed query object.
  */
 function offerList(store, states, q) {
-  const filtered = states.filter((s) => offerMatchesFilters(s.offer, q));
+  const filtered = states.filter((s) => {
+    if (s.cancelled && q.includeCancelled !== 'true') return false;
+    return offerMatchesFilters(s.offer, q);
+  });
   const limit = Math.min(Math.max(parseInt(q.limit, 10) || 20, 1), 100);
   const page = Math.max(parseInt(q.page, 10) || 1, 1);
   const total = filtered.length;

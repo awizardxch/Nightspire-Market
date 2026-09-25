@@ -47,7 +47,7 @@ const { RelaySigner } = require('./src/signer');
 const { RelayLog } = require('./src/log');
 const { OfferStore, validateOffer } = require('./src/store');
 const { AuctionBook } = require('./src/auctions');
-const { verifyOfferSignatures, UNVERIFIED_REASONS } = require('./src/offer_sigs');
+const { verifyOfferSignatures, verifyCancelSignatures, UNVERIFIED_REASONS } = require('./src/offer_sigs');
 const { buildCheckpoint } = require('./src/checkpoints');
 // OpenAPI (venue-api/openapi.yaml) view adapters for the venue UI read endpoints.
 const venue = require('./src/venue_views');
@@ -226,6 +226,29 @@ const server = http.createServer(async (req, res) => {
       if (!state) return sendError(res, 404, 'offer_not_found', `no offer with offerId ${m[1]}`);
       // OpenAPI OfferDetail contract: {offer, fills}.
       return send(res, 200, venue.offerDetail(store, state));
+    }
+    m = p.match(/^\/v1\/offers\/([^/]+)\/cancel$/);
+    if (method === 'POST' && m) {
+      const offerId = m[1];
+      const body = await readBody(req);
+      const state = store.getState(offerId);
+      if (!state) return sendError(res, 404, 'offer_not_found', `no offer with offerId ${offerId}`);
+      if (state.cancelled) return send(res, 409, { error: 'already_cancelled' });
+      const { cancelledAt, signatures } = body || {};
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (!Number.isInteger(cancelledAt) || cancelledAt > nowSec + 60 || cancelledAt < nowSec - 600)
+        return send(res, 400, { error: 'invalid cancelledAt', details: 'unix seconds within the last 10 minutes' });
+      if (!signatures || typeof signatures !== 'object')
+        return send(res, 400, { error: 'missing signatures' });
+      const offer = state.offer;
+      const sigCheck = verifyCancelSignatures(offer, { cancelledAt, signatures });
+      const verified = Object.values(sigCheck.statuses).some((s) => s === 'VERIFIED');
+      if (!sigCheck.ok || !verified)
+        return send(res, 400, { error: 'invalid cancel signature', details: { statuses: sigCheck.statuses, reasons: sigCheck.reasons } });
+      const result = await store.cancelOffer(offerId, cancelledAt);
+      if (!result.ok) return send(res, result.code, result);
+      record('offer.cancelled', { offerId, cancelledAt, signatureStatuses: sigCheck.statuses });
+      return send(res, 200, { offerId, cancelled: true, signatureStatuses: sigCheck.statuses });
     }
     m = p.match(/^\/v1\/offers\/([^/]+)\/commitments$/);
     if (method === 'POST' && m) {

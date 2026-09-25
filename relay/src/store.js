@@ -145,6 +145,17 @@ class OfferStore {
   getState(offerId) {
     return this.offers.get(offerId) || null;
   }
+  /** Maker cancellation: marks the offer cancelled (advisory). Serialized per offer. */
+  cancelOffer(offerId, cancelledAt) {
+    return this.forOffer(offerId, () => {
+      const state = this.offers.get(offerId);
+      if (!state) return { ok: false, code: 404, error: 'offer_not_found' };
+      if (state.cancelled) return { ok: false, code: 409, error: 'already_cancelled' };
+      state.cancelled = true;
+      state.cancelledAt = cancelledAt;
+      return { ok: true };
+    });
+  }
 
   sweepExpired(state) {
     const nowSec = Math.floor(Date.now() / 1000);

@@ -191,6 +191,58 @@ function offerEip712Digest(offer) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Offer cancellation (convention v1 extension)
+// ---------------------------------------------------------------------------
+// CancelOffer(bytes32 cancelHash) under the SAME domain as the offer
+// (name, version, giveChain). cancelHash = keccak256(canonical
+// {offerId, makerAddr, cancelledAt}) — binds the cancel to one specific
+// offer and one maker timestamp. The relay recovers the signer and requires
+// it to equal offer.makerAddr.
+
+const CANCEL_TYPES = {
+  CancelOffer: [{ name: 'cancelHash', type: 'bytes32' }],
+};
+
+function offerCancelTermsHash(offerId, makerAddr, cancelledAt) {
+  return keccak256(Buffer.from(canonicalize({ offerId, makerAddr, cancelledAt }), 'utf8'));
+}
+
+/** EIP-712 signing digest for cancelling an offer under convention v1. */
+function offerCancelEip712Digest(offer, cancelledAt) {
+  return eip712Digest({
+    domain: offerDomain(offer),
+    domainTypes: OFFER_DOMAIN_TYPES,
+    primaryType: 'CancelOffer',
+    message: { cancelHash: offerCancelTermsHash(offer.offerId, offer.makerAddr, cancelledAt) },
+    types: { ...OFFER_TYPES, ...CANCEL_TYPES },
+  });
+}
+
+/**
+ * Verify a `signatures.evm` cancel signature under convention v1.
+ * Returns { status: 'VERIFIED'|'INVALID'|'UNVERIFIED'|'absent', reason?, recovered? }.
+ */
+function verifyOfferCancelEip712(offer, cancelledAt, sigHex) {
+  if (sigHex == null) return { status: 'absent' };
+  if (!EVM_CHAINS.has(offer.giveChain))
+    return {
+      status: 'UNVERIFIED',
+      reason: `evm slot is only verifiable for EVM giveChains; offer giveChain is '${offer.giveChain}'`,
+    };
+  const maker = String(offer.makerAddr || '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(maker))
+    return { status: 'INVALID', reason: 'makerAddr is not an EVM address' };
+  try {
+    const digest = offerCancelEip712Digest(offer, cancelledAt);
+    const recovered = recoverAddress(digest, sigHex);
+    if (recovered.toLowerCase() === maker) return { status: 'VERIFIED', recovered };
+    return { status: 'INVALID', reason: `recovered ${recovered} != makerAddr ${maker}`, recovered };
+  } catch (e) {
+    return { status: 'INVALID', reason: `ecrecover failed: ${e.message}` };
+  }
+}
+
 function parseSig(sigHex) {
   const h = String(sigHex).toLowerCase().replace(/^0x/, '');
   if (!/^[0-9a-f]*$/.test(h)) throw new Error('signature is not hex');
@@ -259,6 +311,10 @@ module.exports = {
   domainSeparator,
   eip712Digest,
   offerEip712Digest,
+  offerCancelEip712Digest,
+  offerCancelTermsHash,
+  verifyOfferCancelEip712,
+  CANCEL_TYPES,
   offerTermsHash,
   recoverAddress,
   verifyOfferEip712,

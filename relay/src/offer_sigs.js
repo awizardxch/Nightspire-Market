@@ -41,7 +41,7 @@
  */
 const crypto = require('node:crypto');
 const { canonicalize } = require('./canonical');
-const { verifyOfferEip712 } = require('./eip712');
+const { verifyOfferEip712, verifyOfferCancelEip712 } = require('./eip712');
 
 const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -159,8 +159,59 @@ function verifyOfferSignatures(offer) {
   return { ok, statuses, reasons };
 }
 
+/** Canonical cancel signing bytes: {offerId, makerAddr, cancelledAt}. */
+function offerCancelSignBytes(cancel) {
+  return Buffer.from(canonicalize(cancel), 'utf8');
+}
+
+/**
+ * Verify a maker's cancel request against the offer's own verified schemes.
+ * cancelReq: { cancelledAt, signatures }. Only schemes the offer used AND
+ * that verified at post time are checked; at least one must VERIFY.
+ */
+function verifyCancelSignatures(offer, cancelReq) {
+  const statuses = { ed25519: 'absent', solana: 'absent', evm: 'absent', chia: 'absent' };
+  const reasons = {};
+  const sigs = (cancelReq && typeof cancelReq === 'object' && cancelReq.signatures) || {};
+  const offerSigs = (offer && typeof offer === 'object' && offer.signatures) || {};
+  const offerStatuses = (offer && typeof offer === 'object' && offer.signatureStatuses) || {};
+  const cancelledAt = cancelReq && cancelReq.cancelledAt;
+  const bytes = offerCancelSignBytes({ offerId: offer.offerId, makerAddr: offer.makerAddr, cancelledAt });
+  let ok = true;
+  if (offerSigs.ed25519 != null && offerStatuses.ed25519 === 'VERIFIED') {
+    try {
+      const c = sigs.ed25519 || {};
+      if (typeof c.pubkey !== 'string' || typeof c.sig !== 'string') throw new Error('shape');
+      if (c.pubkey.toLowerCase() !== String(offerSigs.ed25519.pubkey || '').toLowerCase())
+        throw new Error('cancel pubkey does not match the key that signed the offer');
+      spkiDerToRaw(c.pubkey);
+      statuses.ed25519 = verifyEd25519(bytes, c.sig, c.pubkey) ? 'VERIFIED' : 'INVALID';
+    } catch (e) { statuses.ed25519 = 'INVALID'; reasons.ed25519 = e.message; }
+    if (statuses.ed25519 === 'INVALID') ok = false;
+  }
+  if (offerSigs.solana != null && offerStatuses.solana === 'VERIFIED') {
+    try {
+      const raw = base58Decode(offer.makerAddr);
+      if (raw.length !== 32) throw new Error('bad len');
+      const spkiHex = rawPubkeyToSpkiDerHex(raw);
+      statuses.solana = (typeof sigs.solana === 'string' && verifyEd25519(bytes, sigs.solana, spkiHex)) ? 'VERIFIED' : 'INVALID';
+    } catch { statuses.solana = 'INVALID'; }
+    if (statuses.solana === 'INVALID') ok = false;
+  }
+  if (offerSigs.evm != null && offerStatuses.evm === 'VERIFIED') {
+    const res = verifyOfferCancelEip712(offer, cancelledAt, sigs.evm);
+    statuses.evm = res.status;
+    if (res.reason) reasons.evm = res.reason;
+    if (res.status === 'INVALID') ok = false;
+  }
+  if (offerSigs.chia != null) { statuses.chia = 'UNVERIFIED'; reasons.chia = UNVERIFIED_REASONS.chia; }
+  return { ok, statuses, reasons };
+}
+
 module.exports = {
   verifyOfferSignatures,
+  verifyCancelSignatures,
+  offerCancelSignBytes,
   offerSignBytes,
   base58Decode,
   base58Encode,
