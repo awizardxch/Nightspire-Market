@@ -6,6 +6,10 @@
 # - jsonschema (+pyyaml for the YAML loader): used by
 #   test/contract_venue_api.py to validate relay responses against
 #   venue-api/openapi.yaml. Versions match venue-api/requirements.txt.
+# - cryptography: used by scripts/smoke.sh step 5b, which verifies the
+#   auction tick chain (tickHash linkage + ed25519 relaySigs) client-side
+#   in Python. CI installs this file, so it must be pinned here.
 coincurve==21.0.0
+cryptography==50.0.1
 jsonschema==4.10.3
 pyyaml==6.0.1
