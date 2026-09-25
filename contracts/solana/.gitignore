@@ -1,6 +1,6 @@
 # Build outputs — but keep the two program binaries and the hand-maintained
 # IDL that the bankrun tests load directly as fixtures
-target/
+target/*
 !target/deploy/
 target/deploy/*
 !target/deploy/xcm_htlc.so

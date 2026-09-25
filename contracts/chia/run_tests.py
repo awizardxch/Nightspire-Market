@@ -18,6 +18,7 @@ What it does NOT prove (needs testnet11 + full node):
 """
 import hashlib
 import re
+import shutil
 import subprocess
 import sys
 from io import BytesIO
@@ -33,7 +34,9 @@ from clvm_tools.curry import curry
 from chia_rs import Program
 
 HERE = Path(__file__).resolve().parent
-BRUN = str(Path.home() / ".local" / "bin" / "brun")
+# clvm_tools installs `brun` next to the interpreter's scripts (PATH on CI,
+# ~/.local/bin for `pip install --user`); fall back to the latter.
+BRUN = shutil.which("brun") or str(Path.home() / ".local" / "bin" / "brun")
 
 # ---------------------------------------------------------------- test vectors
 # Throwaway keys — generated fresh, never persisted, never funded.
