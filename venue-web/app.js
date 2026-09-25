@@ -7,7 +7,9 @@
  * see the "How fills work" view (#/about).
  */
 
-const DEFAULT_RELAY = 'http://localhost:8787';
+const DEFAULT_RELAY =
+  (typeof window !== 'undefined' && window.NIGHTSPIRE_RELAY_URL) ||
+  'http://localhost:8787';
 const app = document.getElementById('app');
 
 let relayBase = DEFAULT_RELAY;

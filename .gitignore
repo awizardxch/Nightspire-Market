@@ -50,5 +50,8 @@ worker/data-recovery/
 # Logs
 *.log
 
+# Vercel build output (generated from NIGHTSPIRE_RELAY_URL, never committed)
+venue-web/config.js
+
 # OS
 .DS_Store
