@@ -8,8 +8,7 @@
  */
 
 const DEFAULT_RELAY =
-  (typeof window !== 'undefined' && window.NIGHTSPIRE_RELAY_URL) ||
-  'http://localhost:8787';
+  (typeof window !== 'undefined' && window.NIGHTSPIRE_RELAY_URL) || '';
 const app = document.getElementById('app');
 
 let relayBase = DEFAULT_RELAY;
@@ -23,6 +22,10 @@ try {
 
 /* ---------- HTTP (GET only) ---------- */
 async function api(path) {
+  if (!relayBase) {
+    throw new Error('relay URL is not configured in this build ' +
+      '(NIGHTSPIRE_RELAY_URL was empty at build time)');
+  }
   const r = await fetch(relayBase + path);
   if (!r.ok) {
     let body = {};
@@ -128,9 +131,8 @@ async function render() {
   } catch (e) {
     app.innerHTML = `<div class="glow-card"><h2 class="error">Couldn't reach the relay</h2>
       <p>${esc(e.message)}</p>
-      <p class="muted">Is the relay running? Start it with <code class="mono">node server.js</code>
-      in <code class="mono">relay/</code> (default <code class="mono">http://localhost:8787</code>),
-      then set the relay URL above.</p></div>`;
+      <p class="muted">This board is built with its relay address baked in. If the relay
+      was just deployed or redeployed, wait a moment and refresh.</p></div>`;
   }
   const extra = document.getElementById('crumbExtra');
   extra.innerHTML = '';
