@@ -44,7 +44,7 @@ the freeze restarts scoping.
 - [ ] Contract sources (in scope per above)
 - [ ] Build artifacts: Foundry `out/` hashes, `target/deploy/*.so` sha256,
       compiled `.hex` puzzles
-- [ ] Test evidence: CI logs for the frozen commit (EVM 16/16, Chia 36/36,
+- [ ] Test evidence: CI logs for the frozen commit (EVM 16/16, Chia 63/63 + sim 24/24,
       Solana 12/12, relay smoke, worker demo 9/9, venue validation)
 - [ ] This repo's `docs/ARCHITECTURE.md` (spec → code map)
 - [ ] Threat model focus (below)
@@ -59,9 +59,14 @@ the freeze restarts scoping.
    What happens if a chain reorgs across the timelock boundary?
 3. **Exclusive-claimer bypass**: can a non-winner claim inside the exclusive
    window on any chain?
-4. **Arbiter overreach**: `arbitrate` requires exact-sum payouts (no fee
-   skim) — confirm there is no path to redirect more than the escrowed
-   amount, and that `arbiter == 0` truly means pure HTLC.
+4. **Arbiter overreach**: on EVM `arbitrate` requires exact-sum payouts.
+   The Chia puzzle enforces `sum(payouts) <= AMOUNT` and `ASSERT_MY_AMOUNT`
+   (so `AMOUNT` is the coin's real value), but it does NOT require equality:
+   an arbiter-signed vector totalling less than the coin burns the remainder
+   to fees — the arbiter's signed choice in mediated mode, documented in
+   `contracts/chia/README.md`. Confirm there is no path to redirect more
+   than the escrowed amount on either chain, and that `arbiter == 0` /
+   `htlc_noarb` truly means pure HTLC.
 5. **Fill-id confusion**: is `fillId = sha256(offerId||fillNonce)` bound
    into every escrow on every chain, so a preimage can't be replayed across
    fills?

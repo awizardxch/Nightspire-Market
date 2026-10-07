@@ -17,7 +17,18 @@ been executed locally and, like everything else, awaits testnet11.
 Nothing about the HTLC changes between XCH and CAT use. The CAT outer
 puzzle runs the inner puzzle with the inner solution and wraps every
 `CREATE_COIN` the inner puzzle emits into a CAT child coin of the same
-asset. The HTLC's `AMOUNT` is then denominated in **CAT base units**, and
+asset.
+
+**Why every `CREATE_COIN` carries a hint.** Each branch emits
+`(51 ph amount (ph))`: the destination puzzle hash is repeated as the first
+memo, which consensus treats as the coin's *hint*. For plain XCH the payee
+scans by puzzle hash and the hint is redundant. Inside CAT2 the child coin
+does not sit at `ph` — it sits at `tree_hash(CAT_MOD.curry(tail_hash,
+ph-puzzle))` — and CAT wallets discover their coins by looking up the hint,
+not the outer puzzle hash. Without the hint a CAT claim, refund or arbitrate
+payout would settle on chain and show nothing in the recipient's wallet.
+The hint is not part of the coin id and is not covered by any signed
+message; it is purely for discovery. The HTLC's `AMOUNT` is then denominated in **CAT base units**, and
 every signed message commits to CAT amounts — the signer must use the
 post-decimals amount (spec §6.2: keep CAT decimals identical to the EVM
 token where possible so base units match 1:1).
@@ -54,10 +65,12 @@ The outer puzzle enforces, independently of the HTLC branches:
 * the announcement-based lineage the wallet needs for the next spend.
 
 The HTLC branches keep their exact semantics: the claim branch's
-`CREATE_COIN CLAIM_PUZZLE_HASH amount` becomes a CAT coin of `amount`
-base units at that puzzle hash; refund and arbitrate likewise. The
-`ASSERT_SECONDS_RELATIVE` timelock and all three `AGG_SIG_ME` checks
-apply unchanged.
+`CREATE_COIN CLAIM_PUZZLE_HASH amount (CLAIM_PUZZLE_HASH)` becomes a CAT
+coin of `amount` base units whose inner puzzle hash is `CLAIM_PUZZLE_HASH`
+(hinted with it); refund and arbitrate likewise. The
+`ASSERT_SECONDS_RELATIVE` / `ASSERT_BEFORE_SECONDS_RELATIVE` timelock pair,
+`ASSERT_MY_AMOUNT` (against the CAT coin's amount in base units) and all
+three `AGG_SIG_ME` checks apply unchanged.
 
 ## What the HTLC does NOT do
 
@@ -83,8 +96,11 @@ Locking 600000 base units of CAT `<assetId>` as the maker's first leg:
    shape), spend the maker's CAT coin(s): `600000` base units to
    `tree_hash(cat_puzzle)`, remainder to change — atomically, exactly
    like native offers (spec §5c "Change").
-4. Claim/refund/arbitrate exactly as for XCH, with the inner solution
-   `(MODE PAYLOAD AMOUNT)` embedded in the CAT outer solution.
+4. In a LATER bundle, once the lock is in a block, claim/refund/arbitrate
+   exactly as for XCH, with the inner solution `(MODE PAYLOAD AMOUNT)`
+   embedded in the CAT outer solution. (A claim cannot share the lock's
+   bundle: its relative `ASSERT_BEFORE_SECONDS_RELATIVE` is forbidden on
+   an ephemeral coin.)
 
 ## Open validation items (testnet11)
 

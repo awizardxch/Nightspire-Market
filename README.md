@@ -36,15 +36,18 @@ forge test          # in-process EVM, no network
 OpenZeppelin sources used (ReentrancyGuard, ECDSA, SafeERC20) are vendored
 under `contracts/evm/lib/oz/` — no submodule checkout or network needed.
 
-### Chia puzzles (36 tests)
+### Chia puzzles (63 tests + 24 simulator checks)
 
 ```bash
-pip install -r contracts/chia/requirements.txt   # blspy, clvm, clvm_tools (pinned)
-python3 contracts/chia/run_tests.py              # compiles with clvm_tools, runs with brun
+pip install -r contracts/chia/requirements.txt   # blspy, clvm, clvm_tools, chia_rs (pinned)
+python3 contracts/chia/run_tests.py              # compiles with clvm_tools, checks the committed hex, runs with brun
+python3 contracts/chia/sim_tests.py              # consensus lane; needs chia-blockchain (exits 2 without it)
 ```
 
-Local only: proves branch logic and BLS message bytes, NOT testnet11/mainnet
-consensus. See `contracts/chia/README.md`.
+Local only: `run_tests.py` proves branch logic, hex integrity and BLS message
+bytes; `sim_tests.py` proves consensus behaviour on chia-blockchain's
+in-process simulator. Neither is testnet11/mainnet. See
+`contracts/chia/README.md`.
 
 ### Solana program (12 tests)
 
