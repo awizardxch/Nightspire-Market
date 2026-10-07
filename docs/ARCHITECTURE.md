@@ -79,6 +79,14 @@ This doc maps spec sections to code in this repo and states what's working vs st
    makes the relay/watcher design concrete and is proven by the E2E test.
 4. **Refund before vs at timelock**: `withdraw` requires `t < timelock`,
    `refund` requires `t >= timelock` — at exactly `timelock` only refund is live
-   (no overlap window where both branches are callable).
+   (no overlap window where both branches are callable). The Chia leg mirrors
+   this with a complementary pair of relative conditions: the claim branch
+   emits `ASSERT_BEFORE_SECONDS_RELATIVE TIMELOCK_SECONDS` and the refund
+   branch `ASSERT_SECONDS_RELATIVE TIMELOCK_SECONDS`. Both are judged against
+   the previous transaction block's timestamp, so in any given block exactly
+   one of claim/refund is valid for a coin — but "time" on Chia is block
+   time, not wall-clock, and the boundary block is decided by the farmer's
+   timestamp, not by the spender (see `contracts/chia/README.md`,
+   "Timelocks").
 5. **Partial arbitrate splits rejected**: `sum(amounts)` must equal `amount` so a
    mediated split can't strand dust in the escrow.
