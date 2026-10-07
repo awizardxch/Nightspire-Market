@@ -20,21 +20,31 @@
 ; The puzzle knows no maker/taker semantics: §5's role table decides which
 ; key/address fills each slot per leg.
 ;
-;   MODE 0 — CLAIM:     PAYLOAD = preimage s. Requires sha256(s) == HASHLOCK
-;                       and the CLAIMER_PK signature. Pays AMOUNT to
-;                       CLAIM_PUZZLE_HASH.
-;   MODE 1 — REFUND:    PAYLOAD = () (ignored). Requires ASSERT_SECONDS_RELATIVE
+;   MODE 0 — CLAIM:     PAYLOAD = preimage s, EXACTLY 32 bytes (the EVM and
+;                       Solana legs take bytes32 / [u8; 32]). Requires
+;                       sha256(s) == HASHLOCK, ASSERT_BEFORE_SECONDS_RELATIVE
+;                       TIMELOCK_SECONDS and the CLAIMER_PK signature. Pays
+;                       AMOUNT to CLAIM_PUZZLE_HASH.
+;   MODE 1 — REFUND:    PAYLOAD = () (REQUIRED to be nil; anything else
+;                       raises). Requires ASSERT_SECONDS_RELATIVE
 ;                       TIMELOCK_SECONDS and the REFUNDER_PK signature. Pays
 ;                       AMOUNT to REFUND_PUZZLE_HASH.
-;   MODE 2 — ARBITRATE: PAYLOAD = ((puzzle_hash amount) ...) payout vector.
-;                       Requires a non-null ARBITER_PK and the arbiter's
-;                       signature over the payout digest. MEDIATED MODE: the
-;                       arbiter can unilaterally reassign the escrow — only
-;                       name an arbiter the offer explicitly opts into.
+;   MODE 2 — ARBITRATE: PAYLOAD = ((puzzle_hash amount) ...) payout vector;
+;                       each puzzle_hash is 32 bytes and each pair has
+;                       exactly two elements. Requires a non-null ARBITER_PK
+;                       and the arbiter's signature over the payout digest.
+;                       MEDIATED MODE: the arbiter can unilaterally reassign
+;                       the escrow — only name an arbiter the offer
+;                       explicitly opts into.
 ;
 ; AMOUNT is the coin's amount, supplied by the spender's wallet. CLVM has no
-; amount opcode; every signed message commits to AMOUNT, so a wrong amount
-; invalidates the signature (fail-closed, never a wrong payout).
+; amount opcode, so every branch emits ASSERT_MY_AMOUNT: a wrong AMOUNT fails
+; at consensus instead of burning the difference to fees. Every signed
+; message commits to AMOUNT as well (fail-closed, never a wrong payout).
+;
+; Every CREATE_COIN carries the destination puzzle hash as its hint memo so
+; that, when the puzzle is a CAT2 inner puzzle, wallets can discover the
+; child coins (see cat_usage.md).
 ;
 ; Fees: none. The puzzle takes no cut (spec §13) — payouts move the full amount.
 ;
@@ -51,16 +61,17 @@
     (if arbiter-pk
         (if (> (payout-total payouts) amount)
             (x) ; refuse to create more than the coin holds
-            (c (list 50 arbiter-pk
-                     (sha256 "arbitrate" fill-id (payout-digest payouts "")))
-               (c (list 62 (fill-announcement fill-id "arbitrate"))
-                  (payout-conditions payouts))))
+            (c (list 73 amount) ; ASSERT_MY_AMOUNT — a wrong AMOUNT fails, never burns
+               (c (list 50 arbiter-pk
+                        (sha256 "arbitrate" fill-id (payout-digest payouts "")))
+                  (c (list 62 (fill-announcement fill-id "arbitrate"))
+                     (payout-conditions payouts)))))
         (x)))
 
   (if (= MODE 0)
-      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD AMOUNT)
+      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD TIMELOCK_SECONDS AMOUNT)
       (if (= MODE 1)
-          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID AMOUNT)
+          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID PAYLOAD AMOUNT)
           (if (= MODE 2)
               (arbitrate-conditions ARBITER_PK FILL_ID PAYLOAD AMOUNT)
               (x)))) ; unknown mode -> fail

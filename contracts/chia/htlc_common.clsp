@@ -45,29 +45,51 @@
     (sha256 fill-id branch-tag))
 
   ; CLAIM branch. Solution payload is the preimage s.
-  ; Fails closed unless sha256(s) == hashlock; pays the full amount to
-  ; claim-ph on the claimer key's BLS signature.
-  (defun claim-conditions (hashlock claim-ph claimer-pk fill-id preimage amount)
-    (if (= (sha256 preimage) hashlock)
-        (list
-          (list 51 claim-ph amount)                                ; CREATE_COIN
-          (list 50 claimer-pk (sig-msg fill-id "claim" claim-ph amount)) ; AGG_SIG_ME
-          (list 62 (fill-announcement fill-id "claim")))           ; CREATE_PUZZLE_ANNOUNCEMENT
+  ; Cross-chain invariant: |s| == 32 bytes. The EVM leg takes `bytes32` and
+  ; the Solana leg `[u8; 32]`, so a preimage of any other width would let the
+  ; claimer take this leg with a secret the counterparty cannot use. The width
+  ; check runs first (lazy `if`), so a non-atom or short payload raises before
+  ; the hash is compared. Fails closed unless sha256(s) == hashlock; pays the
+  ; full amount to claim-ph on the claimer key's BLS signature.
+  ; The claim is only valid BEFORE `timelock` seconds have elapsed since the
+  ; coin's birth (opcode 84 = ASSERT_BEFORE_SECONDS_RELATIVE), the exact
+  ; complement of the refund branch's ASSERT_SECONDS_RELATIVE: both are judged
+  ; against the previous transaction block, so exactly one branch is live in
+  ; any block. (A relative BEFORE condition is forbidden on an ephemeral coin,
+  ; so a claim cannot sit in the same bundle as the lock that creates it.)
+  (defun claim-conditions (hashlock claim-ph claimer-pk fill-id preimage timelock amount)
+    (if (= (strlen preimage) 32)
+        (if (= (sha256 preimage) hashlock)
+            (list
+              (list 73 amount)                                         ; ASSERT_MY_AMOUNT
+              (list 84 timelock)                                       ; ASSERT_BEFORE_SECONDS_RELATIVE
+              (list 51 claim-ph amount (list claim-ph))                ; CREATE_COIN (+ hint memo)
+              (list 50 claimer-pk (sig-msg fill-id "claim" claim-ph amount)) ; AGG_SIG_ME
+              (list 62 (fill-announcement fill-id "claim")))           ; CREATE_PUZZLE_ANNOUNCEMENT
+            (x))
         (x)))
 
   ; REFUND branch. Opens `timelock` seconds after the coin's birth
   ; (opcode 80 = ASSERT_SECONDS_RELATIVE, per spec §9). Pays the full
   ; amount to refund-ph on the refunder's BLS signature.
-  (defun refund-conditions (timelock refund-ph refunder-pk fill-id amount)
-    (list
-      (list 80 timelock)                                          ; ASSERT_SECONDS_RELATIVE
-      (list 51 refund-ph amount)                                   ; CREATE_COIN
-      (list 50 refunder-pk (sig-msg fill-id "refund" refund-ph amount)) ; AGG_SIG_ME
-      (list 62 (fill-announcement fill-id "refund"))))            ; CREATE_PUZZLE_ANNOUNCEMENT
+  ; `payload` MUST be (): AGG_SIG_ME covers the message, not the solution,
+  ; so an unread field could be rewritten by a relayer under the same
+  ; signature (a different bundle identity, inflated cost). Refused here.
+  (defun refund-conditions (timelock refund-ph refunder-pk fill-id payload amount)
+    (if payload
+        (x)
+        (list
+          (list 73 amount)                                             ; ASSERT_MY_AMOUNT
+          (list 80 timelock)                                           ; ASSERT_SECONDS_RELATIVE
+          (list 51 refund-ph amount (list refund-ph))                  ; CREATE_COIN (+ hint memo)
+          (list 50 refunder-pk (sig-msg fill-id "refund" refund-ph amount)) ; AGG_SIG_ME
+          (list 62 (fill-announcement fill-id "refund")))))            ; CREATE_PUZZLE_ANNOUNCEMENT
 
   ; Fold an arbitrate payout vector into a single digest the arbiter signs.
-  ; (Kept out of the tree-hash operator on purpose: sha256tree is not
-  ; available in every CLVM toolchain, and this fold is fully deterministic.)
+  ; (A plain sha256 fold rather than sha256tree: sha256tree is an ordinary
+  ; library defun, not an operator, and the flat fold is simpler for the
+  ; signing wallet to mirror. Each pair's shape and puzzle-hash width are
+  ; validated by payout-conditions, which every arbitrate spend evaluates.)
   ; Recursive — kept as a real defun (macros cannot recurse).
   (defun payout-digest (payouts acc)
     (if payouts
@@ -82,12 +104,19 @@
         0))
 
   ; CREATE_COIN conditions for a payout vector ((ph amt) ...).
+  ; Validates each pair as it walks: the puzzle hash must be exactly 32 bytes
+  ; and the pair must carry nothing after (ph amt) — an unread trailing
+  ; element would be malleable under the arbiter's signature. Both raise.
   ; NOTE: two identical (ph, amt) pairs would be rejected by consensus as
   ; DUPLICATE_OUTPUT. The off-chain composer (relay/worker) MUST merge
   ; same-recipient payouts before asking the arbiter to sign.
   (defun payout-conditions (payouts)
     (if payouts
-        (c (list 51 (f (f payouts)) (f (r (f payouts))))
-           (payout-conditions (r payouts)))
+        (if (r (r (f payouts)))
+            (x) ; trailing element in a payout pair
+            (if (= (strlen (f (f payouts))) 32)
+                (c (list 51 (f (f payouts)) (f (r (f payouts))) (list (f (f payouts))))
+                   (payout-conditions (r payouts)))
+                (x))) ; payout puzzle hash is not 32 bytes
         ()))
 )

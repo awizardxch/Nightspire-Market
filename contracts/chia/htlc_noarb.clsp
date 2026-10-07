@@ -19,9 +19,12 @@
 ;   FILL_ID             32 bytes   sha256(offerId || fillNonce) — binds the fill
 ;   MODE PAYLOAD AMOUNT — solution: (MODE PAYLOAD AMOUNT)
 ;
-;   MODE 0 — CLAIM:  PAYLOAD = preimage s
-;   MODE 1 — REFUND: PAYLOAD = () (ignored)
+;   MODE 0 — CLAIM:  PAYLOAD = preimage s, exactly 32 bytes; valid only
+;                    before TIMELOCK_SECONDS (ASSERT_BEFORE_SECONDS_RELATIVE)
+;   MODE 1 — REFUND: PAYLOAD = () (required nil; anything else raises);
+;                    valid only from TIMELOCK_SECONDS (ASSERT_SECONDS_RELATIVE)
 ;   any other MODE fails (no arbitrate branch exists).
+;   Every branch emits ASSERT_MY_AMOUNT and hints each CREATE_COIN.
 ;
 ; TOOLCHAIN NOTE: defun bodies cannot see the mod's curried params (see
 ; htlc_common.clsp), so the main body passes every value explicitly.
@@ -31,8 +34,8 @@
   (include "htlc_common.clsp")
 
   (if (= MODE 0)
-      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD AMOUNT)
+      (claim-conditions HASHLOCK CLAIM_PUZZLE_HASH CLAIMER_PK FILL_ID PAYLOAD TIMELOCK_SECONDS AMOUNT)
       (if (= MODE 1)
-          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID AMOUNT)
+          (refund-conditions TIMELOCK_SECONDS REFUND_PUZZLE_HASH REFUNDER_PK FILL_ID PAYLOAD AMOUNT)
           (x))) ; no arbitrate branch exists — mode 2 (or any other) fails
 )
